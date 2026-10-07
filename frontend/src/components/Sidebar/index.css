@@ -29,7 +29,7 @@
 }
 
 .sidebar-logo {
-  height: 48px;
+  height: 36px;
   width: auto;
   object-fit: contain;
 }
@@ -38,7 +38,11 @@
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: var(--on-surface);
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
 }
 
 .sidebar-version {
@@ -251,7 +255,7 @@
 
 .sidebar-user-name {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--on-surface);
   line-height: 1.2;
 }
@@ -305,4 +309,66 @@
   .sidebar-close-mobile-btn {
     display: flex;
   }
+}
+
+
+.sidebar-profile-section {
+  margin-top: auto;
+  border-top: 1px solid var(--outline-variant);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-profile-section:hover {
+  background-color: var(--surface-container-low);
+}
+
+.sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.sidebar-profile-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-profile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.sidebar-profile-action {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.sidebar-logout-btn {
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  transition: all 0.15s ease;
+}
+
+.sidebar-logout-btn:hover {
+  background-color: rgba(211, 47, 47, 0.08);
+  color: #d32f2f;
+}
+
+.sidebar-logout-btn .material-symbols-outlined {
+  font-size: 20px;
 }

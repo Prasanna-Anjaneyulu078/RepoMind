@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: repo_mind
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-repomind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repomind_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-repomind}
+    ports:
+      - "5432:5432"
+    volumes:
+      - repomind-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repomind} -d ${POSTGRES_DB:-repomind}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  repomind-postgres-data:

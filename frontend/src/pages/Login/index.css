@@ -1,0 +1,171 @@
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  background-color: var(--surface);
+  padding: 24px;
+}
+
+.login-card {
+  background-color: var(--surface-container-lowest);
+  width: 100%;
+  max-width: 440px;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: var(--radius-xl);
+  padding: 48px 40px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(199, 196, 216, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  align-items: center;
+  text-align: center;
+}
+
+.login-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.login-logo-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.login-logo {
+  max-width: 100%;
+  height: 95px;
+  object-fit: contain;
+  width: 180px;
+}
+
+.login-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--on-surface);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.login-desc {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+  margin: 0;
+}
+
+.btn-github-auth {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background-color: #24292e;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.btn-github-auth:hover:not(:disabled) {
+  background-color: #1b1f23;
+  transform: translateY(-1px);
+}
+
+.btn-github-auth:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-github-auth:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.github-icon {
+  flex-shrink: 0;
+}
+
+.login-card .btn-action-light {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.login-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.login-secure-icon {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.login-loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-spinner, .login-btn-spinner {
+  animation: login-spin 1s linear infinite;
+}
+
+@keyframes login-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .login-logo {
+    width: 160px;
+  }
+}
+
+@media (max-width: 767px) {
+  .login-page {
+    padding: 16px;
+  }
+  
+  .login-card {
+    padding: 32px 24px;
+    gap: 24px;
+  }
+  
+  .login-logo {
+    width: min(180px, 60vw);
+  }
+  
+  .login-title {
+    font-size: 20px;
+  }
+  
+  .btn-github-auth {
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+}

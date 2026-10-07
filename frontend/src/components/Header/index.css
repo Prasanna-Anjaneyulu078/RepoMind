@@ -99,25 +99,7 @@
   background-color: var(--primary);
 }
 
-.header-divider {
-  height: 16px;
-  width: 1px;
-  background-color: rgba(199, 196, 216, 0.4);
-}
 
-.header-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid rgba(199, 196, 216, 0.3);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.header-avatar:hover {
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.3);
-}
 
 .mobile-menu-toggle {
   display: none;
@@ -201,3 +183,4 @@
     justify-content: center;
   }
 }
+

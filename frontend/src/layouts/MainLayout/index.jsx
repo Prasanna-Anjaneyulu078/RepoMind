@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { fetchApi } from '../../utils/apiClient.js';
 import Sidebar from '../../components/Sidebar/index.jsx';
 import Header from '../../components/Header/index.jsx';
 import ConnectModal from '../../components/ConnectModal/index.jsx';
-import CommandPalette from '../../components/CommandPalette/index.jsx';
 import Toast from '../../components/Toast/index.jsx';
 import './index.css';
 
@@ -13,15 +13,37 @@ const MainLayout = ({
   repositories,
   isConnectModalOpen,
   setIsConnectModalOpen,
-  isCommandPaletteOpen,
-  setIsCommandPaletteOpen,
   toasts,
-  addToast
+  addToast,
+  onRefreshRepositories
 }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const handleSync = () => {
-    addToast('Sync triggered: Codebase index refreshed to latest Git commit.', 'sync');
+  const handleSync = async () => {
+    if (!activeRepo || !activeRepo.id) return;
+    try {
+      addToast('Checking repository for changes...', 'sync');
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/sync`, {
+        method: 'POST',
+        credentials: 'include'
+      }, true);
+
+      if (data.success) {
+        if (data.upToDate) {
+          addToast('Repository is already up to date.', 'check_circle');
+        } else {
+          addToast('Synchronization started...', 'sync');
+          if (onRefreshRepositories) onRefreshRepositories();
+        }
+      }
+    } catch (err) {
+      if (err.status === 409) {
+        addToast('Synchronization is already in progress.', 'error');
+      } else {
+        addToast('Unable to sync repository. Please try again.', 'error');
+      }
+    }
   };
 
   return (
@@ -64,14 +86,9 @@ const MainLayout = ({
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
         onConnectSuccess={(url) => {
+          if (onRefreshRepositories) onRefreshRepositories();
           addToast('Repository connected successfully!', 'check_circle');
         }}
-      />
-
-      <CommandPalette
-        isOpen={isCommandPaletteOpen}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        repositories={repositories}
       />
 
       <Toast toasts={toasts} />

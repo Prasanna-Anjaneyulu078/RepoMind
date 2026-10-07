@@ -7,17 +7,74 @@ import CodeExplorer from './pages/CodeExplorer/index.jsx';
 import Onboarding from './pages/Onboarding/index.jsx';
 import AskRepo from './pages/AskRepo/index.jsx';
 import Architecture from './pages/Architecture/index.jsx';
-import Settings from './pages/Settings/index.jsx';
-import { initialRepositories } from './data/repositories.js';
-import { initialQuestions } from './data/questions.js';
+import Login from './pages/Login/index.jsx';
+import AuthSuccess from './pages/AuthSuccess/index.jsx';
+import Profile from './pages/Profile/index.jsx';
+import ProtectedRoute from './components/ProtectedRoute/index.jsx';
+import { useAuth } from './context/AuthContext.jsx';
+import { fetchApi } from './utils/apiClient.js';
 
 const App = () => {
-  const [repositories, setRepositories] = useState(initialRepositories);
-  const [activeRepo, setActiveRepo] = useState(initialRepositories[0]);
-  const [questions, setQuestions] = useState(initialQuestions);
+  const { user } = useAuth();
+  const [repositories, setRepositories] = useState([]);
+  const [activeRepo, setActiveRepo] = useState(null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [isRepositoriesLoading, setIsRepositoriesLoading] = useState(true);
+
+  const fetchRepositories = async (isMounted = true) => {
+    if (!user) {
+      if (isMounted) {
+        setRepositories([]);
+        setActiveRepo(null);
+        setIsRepositoriesLoading(false);
+      }
+      return;
+    }
+
+    setIsRepositoriesLoading(true);
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/repositories`, {
+        credentials: 'include'
+      }, false, () => fetchRepositories(isMounted));
+
+      if (data.success && isMounted) {
+        setRepositories(data.data);
+        const savedRepoId = localStorage.getItem('repomind_active_repo_id');
+        
+        let nextActiveRepo = null;
+        if (savedRepoId) {
+          nextActiveRepo = data.data.find(r => r.id === savedRepoId);
+        }
+        
+        if (!nextActiveRepo && data.data.length > 0) {
+          nextActiveRepo = data.data[0];
+        }
+        
+        setActiveRepo(nextActiveRepo);
+        if (nextActiveRepo) {
+          localStorage.setItem('repomind_active_repo_id', nextActiveRepo.id);
+        } else {
+          localStorage.removeItem('repomind_active_repo_id');
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load repositories:", err);
+    } finally {
+      if (isMounted) {
+        setIsRepositoriesLoading(false);
+      }
+    }
+  };
+
+  React.useEffect(() => {
+    let isMounted = true;
+    fetchRepositories(isMounted);
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   const addToast = (message, icon = 'check_circle') => {
     const id = Date.now();
@@ -29,6 +86,7 @@ const App = () => {
 
   const handleSelectRepo = (repo) => {
     setActiveRepo(repo);
+    localStorage.setItem('repomind_active_repo_id', repo.id);
     setRepositories((prev) =>
       prev.map((r) => ({
         ...r,
@@ -38,32 +96,50 @@ const App = () => {
     addToast(`Switched active repository to ${repo.name}`, 'swap_horiz');
   };
 
+  const handleDeleteRepoAppLevel = (repo) => {
+    setRepositories(prev => {
+      const next = prev.filter(r => r.id !== repo.id);
+      if (activeRepo && activeRepo.id === repo.id) {
+        if (next.length > 0) {
+          setActiveRepo(next[0]);
+        } else {
+          setActiveRepo(null);
+        }
+      }
+      return next;
+    });
+    fetchRepositories(true); // Sync with backend
+  };
+
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/auth/success" element={<AuthSuccess />} />
+        
         <Route
+          path="/"
           element={
-            <MainLayout
-              activeRepo={activeRepo}
-              onSelectRepo={handleSelectRepo}
-              repositories={repositories}
-              isConnectModalOpen={isConnectModalOpen}
-              setIsConnectModalOpen={setIsConnectModalOpen}
-              isCommandPaletteOpen={isCommandPaletteOpen}
-              setIsCommandPaletteOpen={setIsCommandPaletteOpen}
-              toasts={toasts}
-              addToast={addToast}
-            />
+            <ProtectedRoute>
+              <MainLayout
+                activeRepo={activeRepo}
+                onSelectRepo={handleSelectRepo}
+                repositories={repositories}
+                isConnectModalOpen={isConnectModalOpen}
+                setIsConnectModalOpen={setIsConnectModalOpen}
+                toasts={toasts}
+                addToast={addToast}
+                onRefreshRepositories={() => fetchRepositories(true)}
+              />
+            </ProtectedRoute>
           }
         >
           <Route
             index
             element={
               <Dashboard
-                repositories={repositories}
-                questions={questions}
+                onSelectRepo={handleSelectRepo}
                 onOpenConnectModal={() => setIsConnectModalOpen(true)}
-                onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
               />
             }
           />
@@ -71,10 +147,8 @@ const App = () => {
             path="dashboard"
             element={
               <Dashboard
-                repositories={repositories}
-                questions={questions}
+                onSelectRepo={handleSelectRepo}
                 onOpenConnectModal={() => setIsConnectModalOpen(true)}
-                onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
               />
             }
           />
@@ -85,6 +159,7 @@ const App = () => {
                 repositories={repositories}
                 onSelectRepo={handleSelectRepo}
                 onOpenConnectModal={() => setIsConnectModalOpen(true)}
+                onRepoDeleted={handleDeleteRepoAppLevel}
               />
             }
           />
@@ -105,8 +180,8 @@ const App = () => {
             element={<Architecture activeRepo={activeRepo} />}
           />
           <Route
-            path="settings"
-            element={<Settings activeRepo={activeRepo} />}
+            path="profile"
+            element={<Profile repositories={repositories} />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

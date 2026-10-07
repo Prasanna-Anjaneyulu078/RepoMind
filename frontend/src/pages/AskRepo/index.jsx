@@ -1,209 +1,325 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import RepoMindLogo from '../../assets/RepoMind_Title_Logo.png';
+import ConversationHistory from './components/ConversationHistory';
+import { fetchApi } from '../../utils/apiClient.js';
+import { useError } from '../../context/ErrorContext.jsx';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import '../CodeExplorer/MarkdownViewer/index.css';
 import './index.css';
 
 const AskRepo = ({ activeRepo }) => {
-  const location = useLocation();
   const navigate = useNavigate();
+  const { showError } = useError();
+  const [conversations, setConversations] = useState([]);
+  const [recommendedQuestions, setRecommendedQuestions] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
-  const [inputQuery, setInputQuery] = useState('');
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: 'assistant',
-      text: 'Hello! I am your RepoMind grounded on VVITU_Placement_Portal (1,248 indexed AST files). Ask any question about authentication, business models, database relations, or API routing.',
-      citations: ['authMiddleware.js:14', 'schema.prisma:1', 'eligibilityService.js:15']
-    }
-  ]);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    if (location.state && location.state.prefilledQuery) {
-      setInputQuery(location.state.prefilledQuery);
+    if (activeRepo && activeRepo.id) {
+      loadInitialData();
     }
-  }, [location.state]);
+  }, [activeRepo]);
 
-  const handleSend = (e) => {
-    if (e) e.preventDefault();
-    if (!inputQuery.trim()) return;
+  useEffect(() => {
+    if (activeConversationId) {
+      loadMessages(activeConversationId);
+    } else {
+      setMessages([]);
+    }
+  }, [activeConversationId]);
 
-    const userMsg = {
-      id: Date.now(),
-      sender: 'user',
-      text: inputQuery
-    };
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-    setMessages((prev) => [...prev, userMsg]);
-    const currentQ = inputQuery;
-    setInputQuery('');
+  const loadInitialData = async () => {
+    if (!activeRepo || !activeRepo.id) return;
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const [convData, recData] = await Promise.all([
+        fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/conversations`, { credentials: 'include' }),
+        fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/recommended-questions`, { credentials: 'include' })
+      ]);
 
-    // Generate accurate contextual AI answer
-    setTimeout(() => {
-      let aiResponseText = `Based on semantic index analysis across ${activeRepo ? activeRepo.name : 'VVITU_Placement_Portal'}:`;
-      let citations = ['server/middleware/authMiddleware.js', 'server/controllers/authController.js'];
-      let codeSnippet = null;
+      if (convData.success) setConversations(convData.data);
+      if (recData.success) setRecommendedQuestions(recData.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-      if (currentQ.toLowerCase().includes('jwt') || currentQ.toLowerCase().includes('auth')) {
-        aiResponseText =
-          'JWT authentication is enforced in `server/middleware/authMiddleware.js`. The middleware extracts the Bearer token from the HTTP Authorization header, verifies signature legitimacy against process.env.JWT_SECRET, and retrieves the corresponding User record from Prisma to hydrate req.user.';
-        citations = ['authMiddleware.js:10', 'authController.js:18'];
-        codeSnippet = `const token = authHeader.split(' ')[1];
-const decoded = jwt.verify(token, process.env.JWT_SECRET);
-req.user = await prisma.user.findUnique({ where: { id: decoded.userId } });`;
-      } else if (currentQ.toLowerCase().includes('eligibility') || currentQ.toLowerCase().includes('student')) {
-        aiResponseText =
-          'Student eligibility logic is managed by `server/services/eligibilityService.js`. Candidates are evaluated against three primary conditions: minimum CGPA threshold, maximum allowed active backlogs (usually 0), and allowed eligible degree branches.';
-        citations = ['eligibilityService.js:12', 'schema.prisma:22'];
-        codeSnippet = `if (studentProfile.cgpa < driveCriteria.minCgpa) {
-  reasons.push('CGPA is below minimum drive criteria');
-}`;
-      } else if (currentQ.toLowerCase().includes('prisma') || currentQ.toLowerCase().includes('schema') || currentQ.toLowerCase().includes('database')) {
-        aiResponseText =
-          'The data layer is configured via `prisma/schema.prisma`. It declares 14 relational tables in PostgreSQL, featuring strict foreign key references between User, StudentProfile, JobDrive, and Application models.';
-        citations = ['prisma/schema.prisma:1', 'prisma/schema.prisma:28'];
-      } else {
-        aiResponseText = `The codebase handles "${currentQ}" using modular Express controllers and Prisma database models. Route endpoints are mapped in server/routes/ and validated through security middlewares before invoking business domain services.`;
+  const loadMessages = async (conversationId) => {
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/conversations/${conversationId}`, {
+        credentials: 'include'
+      });
+      if (data.success && data.data) {
+        setMessages(data.data.messages);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAskQuestion = async (qText) => {
+    if (!qText.trim()) return;
+    
+    const currentQuestion = qText.trim();
+    setQuestion('');
+    
+    // Optimistic UI for User Message
+    const tempUserMsg = { id: Date.now(), role: 'USER', content: currentQuestion, createdAt: new Date().toISOString() };
+    setMessages(prev => [...prev, tempUserMsg]);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      let convId = activeConversationId;
+      if (!convId) {
+        if (!activeRepo || !activeRepo.id) throw new Error("No active repository to start conversation in.");
+        // Create conversation first
+        const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/conversations`, {
+          method: 'POST',
+          credentials: 'include'
+        }, true); // skip generic popup
+        
+        if (data.success) {
+          convId = data.conversation.id;
+          setActiveConversationId(convId);
+          setConversations(prev => [data.conversation, ...prev]);
+        }
       }
 
-      const aiMsg = {
-        id: Date.now() + 1,
-        sender: 'assistant',
-        text: aiResponseText,
-        citations,
-        codeSnippet
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    }, 600);
+      // Post message
+      const data = await fetchApi(`${backendUrl}/api/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ question: currentQuestion, topK: 8 })
+      }, true); // skip popup
+
+      if (data.success) {
+        // Remove temp and add actual
+        setMessages(prev => [...prev.filter(m => m.id !== tempUserMsg.id), 
+          {...tempUserMsg, id: 'real_user_' + Date.now()}, 
+          data.message
+        ]);
+
+        if (data.conversation && data.conversation.title) {
+          setConversations(prev => prev.map(c => 
+            c.id === convId ? { ...c, title: data.conversation.title } : c
+          ));
+        }
+
+        // Refresh recent questions implicitly
+        loadInitialData();
+      }
+    } catch (err) {
+      showError({
+        ...err,
+        title: 'Unable to Send Message',
+        message: 'Your question could not be processed. Please try again.'
+      });
+      setError('Unable to analyze the repository right now. Please try again.');
+      setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id)); // rollback
+      setQuestion(currentQuestion); // restore composer
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
   };
 
-  const handleSuggestionClick = (text) => {
-    setInputQuery(text);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAskQuestion(question);
+    }
   };
+
+  const handleNewConversation = () => {
+    setActiveConversationId(null);
+    setQuestion('');
+    inputRef.current?.focus();
+    setIsMobileDrawerOpen(false);
+  };
+
+  const handleSelectConversation = (id) => {
+    setActiveConversationId(id);
+    setIsMobileDrawerOpen(false);
+  };
+
+  if (!activeRepo) {
+    return (
+      <div className="ask-repo-page empty-page-state">
+        <div className="empty-state-card">
+          <h3 className="empty-state-title">No repository selected.</h3>
+          <p className="empty-state-subtitle">Select a repository to ask questions about.</p>
+          <button type="button" className="btn-action-primary" onClick={() => navigate('/repositories')} style={{ marginTop: '16px' }}>
+            Go to Repositories
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isChatEmpty = !activeConversationId && messages.length === 0;
 
   return (
     <div className="ask-repo-page">
-      <div className="ask-repo-header">
+      <header className="ask-repo-header">
         <div className="ask-repo-title-group">
-          <h1 className="ask-repo-title">Ask Repo</h1>
-          <div className="ask-repo-meta">
-            <span
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--tertiary)'
-              }}
-            ></span>
-            <span>98.4% Grounded · Claude 3.5 Sonnet</span>
+          <button className="mobile-history-toggle btn-icon" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Open history">
+            <span className="material-symbols-outlined">menu</span>
+          </button>
+          <div>
+            <h1 className="ask-repo-title">Ask Repo</h1>
+            <p className="ask-repo-subtitle">Ask questions about {activeRepo.name}</p>
           </div>
         </div>
-
-        <button
-          type="button"
-          className="btn-action-light"
-          onClick={() => navigate('/code-explorer')}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-            terminal
-          </span>
-          <span>Open Code Explorer</span>
+        <button className="btn-action-light new-conversation-btn" onClick={handleNewConversation}>
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
+          <span className="btn-text">New Conversation</span>
         </button>
-      </div>
+      </header>
 
-      <div className="ask-repo-chat-container">
-        <div className="chat-messages-area">
-          {messages.map((m) => (
-            <div key={m.id} className={`chat-bubble-row ${m.sender}`}>
-              <div className={`chat-avatar ${m.sender === 'user' ? 'avatar-user' : 'avatar-assistant'}`}>
-                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
-                  {m.sender === 'user' ? 'person' : 'auto_awesome'}
-                </span>
-              </div>
-
-              <div className={`chat-content-card ${m.sender}`}>
-                <p>{m.text}</p>
-
-                {m.codeSnippet && (
-                  <div className="code-snippet-box">
-                    <pre style={{ margin: 0 }}>{m.codeSnippet}</pre>
+      <main className="ask-repo-main">
+        <ConversationHistory 
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          onSelectConversation={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+          isMobileDrawerOpen={isMobileDrawerOpen}
+          onCloseMobileDrawer={() => setIsMobileDrawerOpen(false)}
+        />
+        
+        <div className="chat-container">
+          
+          <div className="chat-messages-container">
+            {isChatEmpty ? (
+              <div className="welcome-state">
+                <div className="welcome-header">
+                  <div className="welcome-icon" style={{ backgroundColor: 'transparent' }}>
+                    <img src={RepoMindLogo} alt="RepoMind Logo" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+                  </div>
+                  <h2>RepoMind</h2>
+                  <h3>Understand {activeRepo.name} with AI</h3>
+                  <p>Ask anything about this repository.</p>
+                </div>
+                
+                {recommendedQuestions.length > 0 && (
+                  <div className="recommended-questions-section">
+                    <h4>Recommended questions</h4>
+                    <div className="recommended-grid">
+                      {recommendedQuestions.map(rq => (
+                        <button 
+                          key={rq.id} 
+                          className="recommended-card" 
+                          onClick={() => handleAskQuestion(rq.question)}
+                        >
+                          {rq.question}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
-
-                {m.citations && m.citations.length > 0 && (
-                  <div className="citation-chip-row">
-                    <span style={{ fontSize: '11px', color: 'var(--on-surface-variant)' }}>
-                      Citations:
-                    </span>
-                    {m.citations.map((cite, i) => (
-                      <span
-                        key={i}
-                        className="citation-pill"
-                        onClick={() => navigate('/code-explorer')}
-                        title="Jump to code location"
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>
-                          description
-                        </span>
-                        <span>#{cite}</span>
-                      </span>
-                    ))}
+              </div>
+            ) : (
+              <div className="messages-list">
+                {messages.map(msg => (
+                  <div key={msg.id} className={`message-row ${msg.role === 'USER' ? 'user' : 'assistant'}`}>
+                    <div className="message-bubble">
+                      {msg.role === 'ASSISTANT' ? (
+                        <div className="markdown-content ask-repo-markdown">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="message-content">{msg.content}</div>
+                      )}
+                      
+                      {msg.sources && msg.sources.length > 0 && (
+                        <div className="message-sources">
+                          <div className="sources-title">Sources</div>
+                          <div className="sources-list">
+                            {msg.sources.map((src, idx) => (
+                              <button 
+                                key={idx} 
+                                className="source-link"
+                                onClick={() => navigate(`/code-explorer?file=${encodeURIComponent(src.file)}&line=${src.startLine}`)}
+                              >
+                                <span className="source-file">{src.file}</span>
+                                <span className="source-lines">Lines {src.startLine}-{src.endLine} &rarr;</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                {isLoading && (
+                  <div className="message-row assistant">
+                    <div className="message-bubble loading-bubble">
+                      <span className="material-symbols-outlined loading-spinner">progress_activity</span>
+                      Analyzing repository...
+                    </div>
                   </div>
                 )}
+                
+                {error && (
+                  <div className="error-banner">
+                    {error}
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
+            )}
+          </div>
+
+          <div className="chat-input-wrapper">
+            <div className="chat-input-container">
+              <textarea
+                ref={inputRef}
+                className="chat-textarea"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={`Ask anything about ${activeRepo.name}...`}
+                disabled={isLoading}
+                rows={1}
+              />
+              <button 
+                className="chat-submit-btn"
+                onClick={() => handleAskQuestion(question)}
+                disabled={!question.trim() || isLoading}
+                aria-label="Send message"
+              >
+                <span className="material-symbols-outlined">arrow_forward</span>
+              </button>
             </div>
-          ))}
+            <div className="chat-input-hint">
+              Press Enter to send, Shift + Enter for new line
+            </div>
+          </div>
+          
         </div>
-
-        {/* Suggested Queries */}
-        <div className="chat-suggestions-row">
-          <span style={{ fontSize: '11px', color: 'var(--on-surface-variant)', fontWeight: 600 }}>
-            Suggestions:
-          </span>
-          <button
-            type="button"
-            className="suggestion-chip"
-            onClick={() => handleSuggestionClick('Where is JWT authentication implemented?')}
-          >
-            Where is JWT authentication implemented?
-          </button>
-          <button
-            type="button"
-            className="suggestion-chip"
-            onClick={() => handleSuggestionClick('How does student job eligibility work?')}
-          >
-            How does student job eligibility work?
-          </button>
-          <button
-            type="button"
-            className="suggestion-chip"
-            onClick={() => handleSuggestionClick('Where is the Prisma schema defined?')}
-          >
-            Where is the Prisma schema defined?
-          </button>
-          <button
-            type="button"
-            className="suggestion-chip"
-            onClick={() => handleSuggestionClick('Which API creates an application?')}
-          >
-            Which API creates an application?
-          </button>
-        </div>
-
-        {/* Input Bar */}
-        <form onSubmit={handleSend} className="chat-input-bar">
-          <input
-            type="text"
-            className="chat-input"
-            placeholder="Ask anything about the codebase (e.g., #authMiddleware.js:14 or how roles are protected)..."
-            value={inputQuery}
-            onChange={(e) => setInputQuery(e.target.value)}
-          />
-          <button type="submit" className="btn-send-message" title="Send Question">
-            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
-              send
-            </span>
-          </button>
-        </form>
-      </div>
+      </main>
     </div>
   );
 };

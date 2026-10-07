@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext.jsx';
 import './index.css';
-import RepoMindLogo from '../../assets/RepoMind_Logo.png';
+import RepoMindLogo from '../../assets/RepoMind_Title_Logo.png';
 
 const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) => {
+  const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const navigate = useNavigate();
 
   const handleNavClick = () => {
     if (onClose) {
@@ -64,7 +67,9 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
             </span>
             <span>{activeRepo ? activeRepo.branch : 'main'}</span>
             <span style={{ color: 'var(--outline-variant)' }}>•</span>
-            <span className="sidebar-repo-meta-indexed">Indexed</span>
+            <span className="sidebar-repo-meta-indexed">
+              {activeRepo ? (activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' : activeRepo.ingestionStatus === 'FAILED' ? 'Failed' : activeRepo.ingestionStatus === 'QUEUED' || activeRepo.ingestionStatus === 'INGESTING' ? 'Indexing...' : 'Not Indexed') : 'Not Indexed'}
+            </span>
           </div>
         </div>
 
@@ -137,44 +142,47 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
         >
           Onboarding
         </NavLink>
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => `sidebar-nav-item ${isActive ? 'active' : ''}`}
-          onClick={handleNavClick}
-        >
-          Settings
-        </NavLink>
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="sidebar-health-pill">
-          <div className="health-status-group">
-            <span className="pulse-dot-small"></span>
-            <span>Healthy</span>
-          </div>
-          <span className="health-count">
-            {activeRepo ? `${activeRepo.filesCount.toLocaleString()} files` : '1,284 files'}
-          </span>
-        </div>
-
-        <div className="sidebar-user-row">
-          <div className="sidebar-user-info">
+      <div 
+        className="sidebar-profile-section" 
+        onClick={() => {
+          navigate('/profile');
+          if (onClose) onClose();
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        {user ? (
+          <>
             <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDEd0sWOmHoFF--7K63mFLXAmC_nZvClVu0ip-uLAGUWCc6nVWNzo_Lxo8IfEQdsa531sqR1xCvPS7v8EIPQBp28myQJX0M1i4JBf73p-SjrD_sMmcqhu89iO1i9YMr9YRHXB3xesThyT98T3ppr2SC4gkgvG90fnUIYA7vLupktbL2n7tG4PItDl_2xpwYxcjYyjLwaScupxGytCrpe5TNFjOILTAXnoulgPuVoI7e94rnEDRx5mcK"
-              alt="alex.dev"
-              className="sidebar-user-avatar"
+              src={user.avatar_url || 'https://lh3.googleusercontent.com/a/default-user'}
+              alt="User Profile"
+              className="sidebar-avatar"
             />
-            <div className="sidebar-user-details">
-              <span className="sidebar-user-name">alex.dev</span>
-              <span className="sidebar-user-role">GitHub Synced</span>
+            <div className="sidebar-profile-info">
+              <span className="sidebar-profile-name">{user.username || user.name}</span>
+              <span className="sidebar-profile-action">View Profile</span>
             </div>
+            <button
+              type="button"
+              className="sidebar-logout-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                logout();
+                navigate('/login');
+              }}
+              title="Log Out"
+              aria-label="Log Out"
+            >
+              <span className="material-symbols-outlined">logout</span>
+            </button>
+          </>
+        ) : (
+          <div className="sidebar-profile-info">
+            <span className="sidebar-profile-name">Not Signed In</span>
           </div>
-          <button className="sidebar-more-btn" title="User Options">
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
-              more_vert
-            </span>
-          </button>
-        </div>
+        )}
       </div>
     </aside>
   );

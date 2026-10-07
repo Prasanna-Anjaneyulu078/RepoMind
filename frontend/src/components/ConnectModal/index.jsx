@@ -1,31 +1,86 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { fetchApi } from '../../utils/apiClient.js';
 import './index.css';
 
 const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
-  const [repoUrl, setRepoUrl] = useState('https://github.com/Prasanna-Anjaneyulu078/VVITU_Placement_Portal');
-  const [currentStep, setCurrentStep] = useState(4);
-  const [chunkProgress, setChunkProgress] = useState(812);
-  const totalChunks = 1248;
+  const { user } = useAuth();
+  const [modalState, setModalState] = useState('INPUT'); // 'INPUT' | 'INDEXING' | 'READY'
+  const [repoUrl, setRepoUrl] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (isOpen) {
+      setModalState('INPUT');
+      if (user?.githubUsername) {
+        setRepoUrl(`https://github.com/${user.githubUsername}/`);
+      } else {
+        setRepoUrl('');
+      }
+      setProgress(0);
+      setError(null);
+    }
+  }, [isOpen, user]);
 
-    // Simulate indexing progress
-    const interval = setInterval(() => {
-      setChunkProgress((prev) => {
-        if (prev < totalChunks) {
-          return Math.min(prev + 18, totalChunks);
+  const [repositoryId, setRepositoryId] = useState(null);
+
+  useEffect(() => {
+    let interval;
+    if ((modalState === 'INDEXING' || modalState === 'QUEUED') && repositoryId && !error) {
+      const pollStatus = async () => {
+        try {
+          const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+          const data = await fetchApi(`${backendUrl}/api/repositories/${repositoryId}/ingestion`, {
+            credentials: 'include'
+          }, true);
+          if (data.success) {
+            const status = data.data.ingestionStatus;
+            if (status === 'COMPLETED' || status === 'INDEXING_COMPLETED' || status === 'EMBEDDING_FAILED') {
+              setModalState('READY');
+              setRepositoryId(null);
+            } else if (status === 'FAILED') {
+              setModalState('FAILED');
+              setError(data.data.lastIngestionError || 'Repository indexing failed.');
+              setRepositoryId(null);
+            } else if (status === 'INGESTING' || status === 'EMBEDDING') {
+              setModalState('INDEXING');
+            } else if (status === 'QUEUED' || status === 'NOT_INGESTED') {
+              setModalState('QUEUED');
+            }
+          }
+        } catch (err) {
+          console.error('Failed to poll ingestion status:', err);
         }
-        return prev;
-      });
-    }, 400);
+      };
 
+      interval = setInterval(pollStatus, 2000);
+    }
     return () => clearInterval(interval);
-  }, [isOpen, totalChunks]);
+  }, [modalState, repositoryId, error]);
 
-  if (!isOpen) return null;
+  const handleConnectClick = async () => {
+    if (!repoUrl) return;
+    setModalState('QUEUED');
+    setError(null);
+
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/repositories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: repoUrl }),
+        credentials: 'include'
+      }, true);
+
+      setRepositoryId(data.data.id);
+    } catch (err) {
+      setError(err.message);
+      setModalState('FAILED');
+    }
+  };
 
   const handleOpenRepo = () => {
     if (onConnectSuccess) onConnectSuccess(repoUrl);
@@ -33,9 +88,13 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
     navigate('/code-explorer');
   };
 
-  const handleVerify = () => {
-    alert('Repository URL verified successfully with GitHub App Token.');
+  const handleCancel = () => {
+    setModalState('INPUT');
+    setProgress(0);
+    setError(null);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -44,14 +103,22 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
           <div className="modal-header-content">
             <div className="modal-icon-badge">
               <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
-                add_link
+                {modalState === 'INPUT' ? 'add_link' : modalState === 'INDEXING' ? 'sync' : 'check_circle'}
               </span>
             </div>
             <div>
-              <h3 className="modal-title">Connect a Repository</h3>
-              <p className="modal-subtitle">
-                Import a GitHub repository to build your codebase knowledge base.
-              </p>
+              <h3 className="modal-title">
+                {modalState === 'INPUT' && 'Connect a Repository'}
+                {modalState === 'QUEUED' && 'Preparing repository...'}
+                {modalState === 'INDEXING' && 'Analyzing repository...'}
+                {modalState === 'FAILED' && 'Repository indexing failed'}
+                {modalState === 'READY' && 'Repository ready'}
+              </h3>
+              {modalState === 'INPUT' && (
+                <p className="modal-subtitle">
+                  Import a GitHub repository to analyze its codebase and build a searchable knowledge base.
+                </p>
+              )}
             </div>
           </div>
           <button className="modal-close-btn" onClick={onClose} aria-label="Close dialog">
@@ -62,151 +129,78 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
         </div>
 
         <div className="modal-body">
-          <div className="form-group">
-            <label className="form-label">
-              <span>GitHub Repository URL</span>
-              <span className="form-label-hint">Public or Private</span>
-            </label>
-            <div className="input-with-button">
-              <span className="material-symbols-outlined input-icon">code</span>
-              <input
-                type="text"
-                className="url-input"
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/owner/repository"
-              />
-              <button type="button" className="btn-verify" onClick={handleVerify}>
-                Verify
-              </button>
-            </div>
-          </div>
-
-          <div className="pipeline-card">
-            <div className="pipeline-header">
-              <div className="pipeline-status-text">
-                <span
-                  style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--primary)',
-                    display: 'inline-block'
-                  }}
-                ></span>
-                <span>
-                  {chunkProgress >= totalChunks
-                    ? 'Knowledge base built!'
-                    : 'Analyzing repository...'}
-                </span>
+          {modalState === 'INPUT' && (
+            <div className="form-group">
+              <label className="form-label">
+                <span>GitHub Repository URL</span>
+              </label>
+              <div className="input-with-button">
+                <span className="material-symbols-outlined input-icon">code</span>
+                <input
+                  type="text"
+                  className="url-input"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder={user?.githubUsername ? `https://github.com/${user.githubUsername}/repository` : "https://github.com/owner/repository"}
+                />
               </div>
-              <span className="pipeline-step-badge">
-                {chunkProgress >= totalChunks ? 'Step 5 of 5' : 'Step 4 of 5'}
-              </span>
+              {error && <div style={{ color: 'var(--error, red)', fontSize: '12px', marginTop: '4px' }}>{error}</div>}
             </div>
+          )}
 
-            <div className="progress-track">
-              <div
-                className="progress-bar"
-                style={{ width: `${Math.round((chunkProgress / totalChunks) * 100)}%` }}
-              ></div>
-            </div>
-
-            <div className="pipeline-steps-list">
-              <div className="pipeline-step-row">
+          {(modalState === 'QUEUED' || modalState === 'INDEXING' || modalState === 'READY' || modalState === 'FAILED') && (
+            <div className="pipeline-card">
+              <div className="pipeline-step-row" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
                 <div className="pipeline-step-left">
-                  <span
-                    className="material-symbols-outlined"
-                    style={{ fontSize: '15px', color: 'var(--tertiary)', fontWeight: 'bold' }}
-                  >
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
                     check_circle
                   </span>
-                  <span>Repository connected</span>
+                  <span>Repository connected ✓</span>
                 </div>
-                <span className="step-time">0.4s</span>
               </div>
 
-              <div className="pipeline-step-row">
-                <div className="pipeline-step-left">
-                  <span
-                    className="material-symbols-outlined"
-                    style={{ fontSize: '15px', color: 'var(--tertiary)', fontWeight: 'bold' }}
-                  >
-                    check_circle
-                  </span>
-                  <span>Files discovered (1,248 files)</span>
+              {(modalState === 'QUEUED' || modalState === 'INDEXING') && (
+                <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--on-surface)' }}>
+                  {modalState === 'QUEUED' ? 'Repository is queued for indexing...' : 'Analyzing your codebase...'}
                 </div>
-                <span className="step-time">1.2s</span>
-              </div>
+              )}
 
-              <div className="pipeline-step-row">
-                <div className="pipeline-step-left">
-                  <span
-                    className="material-symbols-outlined"
-                    style={{ fontSize: '15px', color: 'var(--tertiary)', fontWeight: 'bold' }}
-                  >
-                    check_circle
-                  </span>
-                  <span>Source files extracted (AST symbol graph parsed)</span>
+              {modalState === 'FAILED' && (
+                <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--error, red)' }}>
+                  {error || 'Repository indexing failed. Please try again.'}
                 </div>
-                <span className="step-time">4.8s</span>
-              </div>
+              )}
 
-              <div className="pipeline-step-active">
-                <div className="pipeline-step-left">
-                  <span
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: 'var(--primary)',
-                      display: 'inline-block'
-                    }}
-                  ></span>
-                  <span>
-                    Creating embeddings (chunk {chunkProgress} / {totalChunks})
-                  </span>
+              {modalState === 'READY' && (
+                <div style={{ marginTop: '16px', fontSize: '14px', color: 'var(--on-surface)' }}>
+                  Your repository is ready to explore and ask questions.
                 </div>
-                <span style={{ fontSize: '11px', color: 'var(--primary)' }}>
-                  {chunkProgress >= totalChunks ? 'Completed' : 'In progress'}
-                </span>
-              </div>
-
-              <div className="pipeline-step-queued">
-                <div className="pipeline-step-left">
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                    {chunkProgress >= totalChunks ? 'check_circle' : 'radio_button_unchecked'}
-                  </span>
-                  <span>Building knowledge base & semantic vectors</span>
-                </div>
-                <span className="step-time">
-                  {chunkProgress >= totalChunks ? 'Ready' : 'Queued'}
-                </span>
-              </div>
+              )}
             </div>
-          </div>
-
-          <div className="modal-security-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                lock
-              </span>
-              <span>Private repo indexed via GitHub App Token</span>
-            </div>
-            <span>Estimated: ~12s remaining</span>
-          </div>
+          )}
         </div>
 
         <div className="modal-footer">
-          <button type="button" className="btn-cancel" onClick={onClose}>
-            Cancel Indexing
-          </button>
-          <button type="button" className="btn-open-repo" onClick={handleOpenRepo}>
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-              auto_stories
-            </span>
-            <span>Open Repository</span>
-          </button>
+          {modalState === 'INPUT' && (
+            <button type="button" className="btn-open-repo" onClick={handleConnectClick} style={{ width: '100%', justifyContent: 'center' }}>
+              <span>Connect Repository</span>
+            </button>
+          )}
+
+          {(modalState === 'QUEUED' || modalState === 'INDEXING' || modalState === 'FAILED') && (
+            <button type="button" className="btn-cancel" onClick={handleCancel} style={{ width: '100%', justifyContent: 'center' }}>
+              Cancel
+            </button>
+          )}
+
+          {modalState === 'READY' && (
+            <button type="button" className="btn-open-repo" onClick={handleOpenRepo} style={{ width: '100%', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
+                auto_stories
+              </span>
+              <span>Open Repository</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,0 +1,111 @@
+const { GoogleGenAI } = require('@google/genai');
+const prisma = require('../config/database');
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'gemini-embedding-001';
+const EMBEDDING_DIMENSION = 768; // Based on schema vector(768)
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Generate embedding for a single text chunk with exponential backoff
+ */
+const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await ai.models.embedContent({
+        model: EMBEDDING_MODEL,
+        contents: text,
+        config: { outputDimensionality: EMBEDDING_DIMENSION }
+      });
+      if (!response.embeddings || response.embeddings.length === 0) {
+        throw new Error('No embeddings returned by Gemini API');
+      }
+      return response.embeddings[0].values;
+    } catch (error) {
+      const isRateLimit = error.status === 429 || (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('RESOURCE_EXHAUSTED')));
+      
+      if (isRateLimit && i < retries - 1) {
+        const waitTime = initialDelay * Math.pow(2, i) + Math.random() * 1000; // jitter
+        console.warn(`[EmbeddingService] API rate limit (429). Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
+        await delay(waitTime);
+      } else {
+        throw error;
+      }
+    }
+  }
+};
+
+/**
+ * Batch embed chunks with bounded concurrency
+ */
+const generateBatchEmbeddings = async (texts) => {
+  if (!texts || texts.length === 0) return [];
+  const results = [];
+  const BATCH_SIZE = 5; // Reduced from 10 to ease burst rate
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(text => generateEmbedding(text));
+    const batchResults = await Promise.all(promises);
+    results.push(...batchResults);
+    if (i + BATCH_SIZE < texts.length) {
+      await delay(1000); // 1s throttle between batches
+    }
+  }
+  return results;
+};
+
+/**
+ * Embed a specific file chunk and persist to pgvector
+ */
+const embedChunk = async (chunkId, content) => {
+  const vector = await generateEmbedding(content);
+  if (!vector || vector.length !== EMBEDDING_DIMENSION) {
+    throw new Error(`Invalid embedding vector dimension. Expected ${EMBEDDING_DIMENSION}`);
+  }
+
+  // Use raw SQL to insert the vector since Prisma doesn't natively map Unsupported("vector") in standard create()
+  await prisma.$executeRaw`
+    INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
+    VALUES (
+      gen_random_uuid(),
+      ${chunkId},
+      ${EMBEDDING_MODEL},
+      ${EMBEDDING_DIMENSION},
+      ${vector}::vector,
+      NOW()
+    )
+    ON CONFLICT ("fileChunkId", model)
+    DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
+  `;
+};
+
+/**
+ * Persist multiple chunks
+ */
+const embedChunks = async (chunks) => {
+  const BATCH_SIZE = 3; // Throttled from 5 to prevent simultaneous rate hits
+  let successCount = 0;
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (c) => {
+        await embedChunk(c.id, c.content);
+        successCount++;
+      })
+    );
+    if (i + BATCH_SIZE < chunks.length) {
+      await delay(1500); // Throttling 1.5s between chunks batch
+    }
+  }
+  return successCount;
+};
+
+module.exports = {
+  generateEmbedding,
+  generateBatchEmbeddings,
+  embedChunk,
+  embedChunks,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIMENSION
+};

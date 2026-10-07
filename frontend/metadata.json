@@ -1,6 +1,0 @@
-{
-  "name": "RepoMind",
-  "description": "Understand your codebase faster with AI. Continuous semantic indexing, codebase exploration, and repository onboarding.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

@@ -1,36 +1,93 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import RepositoryCard from '../../components/RepositoryCard/index.jsx';
+import { fetchApi } from '../../utils/apiClient.js';
+import { useError } from '../../context/ErrorContext.jsx';
 import './index.css';
 
-const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('All Languages');
-  const [selectedStatus, setSelectedStatus] = useState('Status: Ready');
+const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDeleted }) => {
   const navigate = useNavigate();
+  const { showError } = useError();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
+  const [paginatedRepos, setPaginatedRepos] = useState([]);
+  const [paginationInfo, setPaginationInfo] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const filteredRepositories = repositories.filter((repo) => {
-    const matchesSearch =
-      repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      repo.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      repo.techStack.some((tech) => tech.toLowerCase().includes(searchTerm.toLowerCase()));
+  const fetchPaginatedRepositories = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/repositories?page=${page}&limit=6&search=${encodeURIComponent(searchTerm)}`, {
+        credentials: 'include'
+      }, true); // skip popup, we handle inline
 
-    const matchesLanguage =
-      selectedLanguage === 'All Languages' ||
-      (selectedLanguage === 'TypeScript / React' && repo.techStack.includes('React 18')) ||
-      (selectedLanguage === 'Go' && repo.techStack.some((t) => t.includes('Go'))) ||
-      (selectedLanguage === 'Rust' && repo.techStack.some((t) => t.includes('Rust')));
+      if (data.success) {
+        setPaginatedRepos(data.data);
+        setPaginationInfo(data.pagination);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, searchTerm]);
 
-    return matchesSearch && matchesLanguage;
-  });
+  useEffect(() => {
+    fetchPaginatedRepositories();
+  }, [fetchPaginatedRepositories]);
+
+  // Reset page to 1 when search term changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm]);
 
   const handleOpenRepo = (repo) => {
     onSelectRepo(repo);
     navigate('/code-explorer');
   };
 
-  const handleAskRepo = (repo) => {
-    onSelectRepo(repo);
-    navigate('/ask-repo');
+  const handlePreviousPage = () => {
+    if (paginationInfo?.hasPreviousPage) {
+      setPage(p => p - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (paginationInfo?.hasNextPage) {
+      setPage(p => p + 1);
+    }
+  };
+
+  const handleDeleteRepo = async (repo) => {
+    try {
+      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const data = await fetchApi(`${backendUrl}/api/repositories/${repo.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      }, true); // skip automatic popup
+
+      if (data.success) {
+        if (paginatedRepos.length === 1 && page > 1) {
+          setPage(page - 1);
+        } else {
+          fetchPaginatedRepositories();
+        }
+        if (onRepoDeleted) {
+          onRepoDeleted(repo);
+        }
+        return { success: true };
+      }
+    } catch (err) {
+      showError({
+        ...err,
+        title: 'Unable to Remove Repository',
+        message: err.message || 'Unable to remove this repository. Please try again.'
+      });
+      return { success: false, message: err.message };
+    }
   };
 
   return (
@@ -40,7 +97,9 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal }) => {
         <div>
           <div className="repos-title-group">
             <h1 className="repos-heading">Repositories</h1>
-            <span className="repos-synced-pill">{repositories.length} Synced</span>
+            <span className="repos-synced-pill">
+              {paginationInfo ? paginationInfo.totalRepositories : repositories.length} Synced
+            </span>
           </div>
           <p className="repos-subheading">
             Connect and explore your GitHub repositories with continuous semantic indexing.
@@ -60,235 +119,99 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal }) => {
       </div>
 
       {/* Search, Filter & Quick Stats Bar */}
-      <div className="repos-filter-bar">
-        <div className="filter-left-group">
-          <div className="search-input-wrapper">
-            <span className="material-symbols-outlined search-icon-inside">search</span>
-            <input
-              type="text"
-              className="repos-search-field"
-              placeholder="Search repositories, branches, or tech stack..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="filter-controls-group">
-            <div className="select-wrapper">
-              <select
-                className="filter-select"
-                value={selectedLanguage}
-                onChange={(e) => setSelectedLanguage(e.target.value)}
-              >
-                <option>All Languages</option>
-                <option>TypeScript / React</option>
-                <option>Go</option>
-                <option>Rust</option>
-                <option>Python</option>
-              </select>
-              <span className="material-symbols-outlined select-arrow">expand_more</span>
-            </div>
-
-            <div className="select-wrapper">
-              <select
-                className="filter-select"
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-              >
-                <option>Status: Ready</option>
-                <option>Status: Indexing</option>
-                <option>Status: Paused</option>
-              </select>
-              <span className="material-symbols-outlined select-arrow">expand_more</span>
+      {repositories.length > 0 && (
+        <div className="repos-filter-bar">
+          <div className="filter-left-group">
+            <div className="search-input-wrapper">
+              <span className="material-symbols-outlined search-icon-inside">search</span>
+              <input
+                type="text"
+                className="repos-search-field"
+                placeholder="Search repositories, branches, or tech stack..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
           </div>
         </div>
-
-        <div className="filter-status-indicators">
-          <div className="status-indicator-item">
-            <span
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--tertiary)',
-                display: 'inline-block'
-              }}
-            ></span>
-            <span>Graph DB: Synchronized</span>
-          </div>
-          <div className="status-indicator-item">
-            <span className="material-symbols-outlined" style={{ fontSize: '15px', color: 'var(--tertiary)' }}>
-              bolt
-            </span>
-            <span>Semantic Cache 99.4%</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Primary Repository Grid */}
-      <div className="repos-grid-list">
-        {filteredRepositories.map((repo) => (
-          <div key={repo.id} className="repo-full-card">
-            {repo.isActive && <div className="card-accent-bar"></div>}
-
-            <div className="repo-full-content-row">
-              <div className="repo-full-main-col">
-                <div className="repo-full-top-meta">
-                  {repo.isActive && (
-                    <span className="active-target-badge">Active Target</span>
-                  )}
-                  <div className="repo-owner-path">
-                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-                      terminal
-                    </span>
-                    <span>{repo.fullName}</span>
-                  </div>
-                  <a
-                    href={repo.githubUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="View on GitHub"
-                    style={{ color: 'var(--on-surface-variant)', display: 'flex' }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-                      open_in_new
-                    </span>
-                  </a>
-                </div>
-
-                <h2
-                  className="repo-title-heading"
-                  onClick={() => handleOpenRepo(repo)}
-                >
-                  {repo.name}
-                </h2>
-
-                <p className="repo-full-desc">{repo.description}</p>
-
-                <div className="tech-tags-list">
-                  {repo.techStack.map((tech, i) => (
-                    <span key={i} className="tech-tag">
-                      {tech}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="repo-meta-specs-row">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
-                      description
-                    </span>
-                    <strong style={{ color: 'var(--on-surface)' }}>
-                      {repo.filesCount.toLocaleString()}
-                    </strong>{' '}
-                    files
-                  </span>
-                  <span>•</span>
-                  {repo.routesCount && (
-                    <>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
-                          route
-                        </span>
-                        <strong style={{ color: 'var(--on-surface)' }}>
-                          {repo.routesCount}
-                        </strong>{' '}
-                        API routes
-                      </span>
-                      <span>•</span>
-                    </>
-                  )}
-                  {repo.modelsCount && (
-                    <>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
-                          dataset
-                        </span>
-                        <strong style={{ color: 'var(--on-surface)' }}>
-                          {repo.modelsCount}
-                        </strong>{' '}
-                        models
-                      </span>
-                      <span>•</span>
-                    </>
-                  )}
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
-                      schedule
-                    </span>
-                    <span>Updated {repo.updatedAt}</span>
-                  </span>
-                </div>
+      {repositories.length === 0 ? (
+        <div className="empty-state-card" style={{ marginTop: '24px' }}>
+          <h3 className="empty-state-title">No repositories connected yet.</h3>
+          <p className="empty-state-subtitle">Connect a GitHub repository to start building your codebase knowledge base.</p>
+          <button
+            type="button"
+            className="btn-action-primary"
+            onClick={onOpenConnectModal}
+          >
+            Connect Repository
+          </button>
+        </div>
+      ) : error ? (
+        <div className="empty-state-card" style={{ marginTop: '24px' }}>
+          <h3 className="empty-state-title" style={{ color: 'var(--error)' }}>Failed to load repositories</h3>
+          <p className="empty-state-subtitle">{error}</p>
+          <button
+            type="button"
+            className="btn-action-primary"
+            onClick={fetchPaginatedRepositories}
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoading && paginatedRepos.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
+          Loading repositories...
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '400px' }}>
+          <div className="repos-grid-list" style={{ flex: 1, alignContent: 'start' }}>
+            {paginatedRepos.map((repo) => (
+              <RepositoryCard key={repo.id} repo={repo} onOpenRepo={handleOpenRepo} onDeleteRepo={handleDeleteRepo} variant="full" />
+            ))}
+            {paginatedRepos.length === 0 && !isLoading && (
+              <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
+                No repositories found matching your search.
               </div>
-
-              <div className="repo-full-actions-col">
-                <div className="status-pill-ready">
-                  <span
-                    style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      backgroundColor: 'var(--tertiary)',
-                      display: 'inline-block'
-                    }}
-                  ></span>
-                  <span>Ready</span>
-                </div>
-
-                <div className="repo-card-buttons-group">
-                  {repo.isActive ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn-action-light"
-                        onClick={() => navigate('/settings')}
-                        title="Repository Settings"
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                          settings
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-action-primary-light"
-                        onClick={() => handleAskRepo(repo)}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                          auto_awesome
-                        </span>
-                        <span>Ask Repo</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-action-primary"
-                        onClick={() => handleOpenRepo(repo)}
-                      >
-                        <span>Open Repository</span>
-                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                          arrow_forward
-                        </span>
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-action-light"
-                      onClick={() => handleOpenRepo(repo)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <span>Open Repository</span>
-                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-                        arrow_forward
-                      </span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            )}
           </div>
-        ))}
-      </div>
+
+          {/* Pagination Controls */}
+          {paginationInfo && paginationInfo.totalPages > 1 && (
+            <div className="repos-pagination" style={{ marginTop: 'auto', paddingTop: '24px' }}>
+              <button
+                className="pagination-btn"
+                onClick={handlePreviousPage}
+                disabled={!paginationInfo.hasPreviousPage}
+              >
+                &larr; Previous
+              </button>
+              
+              <div className="pagination-numbers">
+                {Array.from({ length: paginationInfo.totalPages }, (_, i) => i + 1).map((pageNum) => (
+                  <button
+                    key={pageNum}
+                    className={`pagination-number ${pageNum === page ? 'pagination-number--active' : ''}`}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                className="pagination-btn"
+                onClick={handleNextPage}
+                disabled={!paginationInfo.hasNextPage}
+              >
+                Next &rarr;
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

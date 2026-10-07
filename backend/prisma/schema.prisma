@@ -1,0 +1,153 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  githubId       String       @unique
+  githubUsername String
+  displayName    String?
+  email          String?
+  avatarUrl      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  
+  sessions       Session[]
+  repositories   Repository[]
+  conversations  Conversation[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  expiresAt   DateTime
+  accessToken String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Repository {
+  id                 String   @id @default(uuid())
+  userId             String
+  githubRepositoryId String
+  owner              String
+  name               String
+  fullName           String
+  description        String?
+  defaultBranch      String   @default("main")
+  isPrivate          Boolean  @default(false)
+  htmlUrl            String
+  
+  ingestionStatus      String   @default("NOT_INGESTED")
+  ingestionStartedAt   DateTime?
+  ingestionCompletedAt DateTime?
+  lastIngestionError   String?
+  fileCount            Int      @default(0)
+  latestCommitSha      String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files              RepositoryFile[]
+  conversations      Conversation[]
+
+  @@index([userId])
+  @@index([githubRepositoryId])
+  @@unique([userId, githubRepositoryId])
+}
+
+model RepositoryFile {
+  id           String   @id @default(uuid())
+  repositoryId String
+  path         String
+  name         String
+  extension    String?
+  language     String?
+  size         Int
+  sha          String
+  content      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  repository   Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  chunks       FileChunk[]
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId])
+}
+
+model FileChunk {
+  id               String         @id @default(uuid())
+  repositoryFileId String
+  chunkIndex       Int
+  content          String
+  startLine        Int
+  endLine          Int
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  repositoryFile   RepositoryFile @relation(fields: [repositoryFileId], references: [id], onDelete: Cascade)
+  embeddings       ChunkEmbedding[]
+
+  @@index([repositoryFileId])
+}
+
+model ChunkEmbedding {
+  id          String    @id @default(uuid())
+  fileChunkId String
+  model       String
+  dimension   Int
+  embedding   Unsupported("vector(768)")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  fileChunk   FileChunk @relation(fields: [fileChunkId], references: [id], onDelete: Cascade)
+
+  @@unique([fileChunkId, model])
+  @@index([fileChunkId])
+}
+
+model Conversation {
+  id           String   @id @default(uuid())
+  userId       String
+  repositoryId String
+  title        String   @default("New Conversation")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  messages     ConversationMessage[]
+
+  @@index([userId])
+  @@index([repositoryId])
+  @@index([userId, repositoryId])
+}
+
+model ConversationMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  role           String
+  content        String
+  sources        Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+}

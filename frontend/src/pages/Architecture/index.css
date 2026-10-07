@@ -1,6 +1,6 @@
 .architecture-page {
   padding: 24px 32px 64px;
-  max-width: 1280px;
+  width: 100%; box-sizing: border-box;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -82,7 +82,7 @@
 
 .layer-nodes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -160,11 +160,78 @@
   }
 
   .layer-nodes-grid {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
 
   .arch-inspector-panel {
     padding: 16px 14px;
+  }
+}
+
+
+
+
+.arch-overview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--surface-container-lowest);
+  border-radius: var(--radius-xl);
+  padding: 20px 24px;
+  border: 1px solid rgba(199, 196, 216, 0.3);
+  box-shadow: var(--shadow-sm);
+}
+
+.arch-overview-section .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--on-surface);
+  margin-bottom: 4px;
+}
+
+.arch-flow-diagram {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.arch-flow-box {
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-container-low);
+  border: 1px solid rgba(199, 196, 216, 0.4);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-surface);
+}
+
+.arch-flow-arrow {
+  color: var(--on-surface-variant);
+  font-size: 18px;
+  transform: rotate(-90deg);
+}
+
+.arch-node-box:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1024px) and (min-width: 768px) {
+  .layer-nodes-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .arch-flow-diagram {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .arch-flow-arrow {
+    transform: rotate(0deg);
   }
 }

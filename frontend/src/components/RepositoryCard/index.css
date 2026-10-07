@@ -1,0 +1,157 @@
+.repos-grid-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .repos-grid-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .repos-grid-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.repo-card {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--surface-container-lowest);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: box-shadow 0.15s ease;
+  min-width: 0;
+}
+
+.repo-card--compact {
+  border: 1px solid rgba(199, 196, 216, 0.3);
+  padding: 20px;
+}
+
+.repo-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.repo-card--compact:hover {
+  background-color: var(--surface-container);
+  border-color: rgba(199, 196, 216, 0.7);
+}
+
+.repo-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.repo-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-card-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease;
+}
+
+.repo-card-title:hover {
+  color: var(--primary);
+}
+
+.repo-card--compact .repo-card-header {
+  margin-bottom: 24px;
+}
+
+.repo-card--compact .repo-card-title {
+  font-size: 16px;
+}
+
+.repo-card-owner {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repo-card-desc-container {
+  margin-top: 4px;
+}
+
+.repo-card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--on-surface-variant);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  height: 40px; /* Fixed height for 2 lines */
+}
+
+.repo-card-desc--empty {
+  /* Retain height even when empty */
+}
+
+.repo-card-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.repo-card-open-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.repo-card-date {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .repo-card {
+    padding: 16px;
+  }
+}
+
+.repo-menu-remove-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--error);
+  font-size: 14px;
+}
+.repo-menu-remove-btn:hover {
+  background-color: var(--error-container);
+}
+.btn-remove-confirm {
+  background-color: var(--error) !important;
+}
+.btn-remove-confirm:disabled {
+  opacity: 0.7;
+}
