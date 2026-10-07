@@ -73,7 +73,7 @@ const AuthSuccess = () => {
             <h2>Authentication failed</h2>
             <p>We couldn't verify your RepoMind session. Please try signing in again.</p>
             <button 
-              className="btn-back-login"
+              className="btn-action-primary"
               onClick={() => navigate('/login', { replace: true })}
             >
               Back to Login

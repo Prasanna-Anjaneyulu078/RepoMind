@@ -1,9 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const createConversation = async (userId, repositoryId, title = 'New Conversation') => {
+const createConversation = async (userId, repositoryId, title = 'New Conversation', componentContext = null) => {
   return await prisma.conversation.create({
-    data: { userId, repositoryId, title }
+    data: { userId, repositoryId, title, componentContext }
   });
 };
 

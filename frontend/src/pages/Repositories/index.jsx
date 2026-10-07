@@ -108,7 +108,7 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDe
 
         <button
           type="button"
-          className="btn-connect-repo"
+          className="btn-action-primary"
           onClick={onOpenConnectModal}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>

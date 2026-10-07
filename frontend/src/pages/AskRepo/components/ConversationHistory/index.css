@@ -6,7 +6,7 @@
   width: 260px;
   min-width: 260px;
   height: 100%;
-  padding: 16px;
+  padding: 16px 16px 16px 0;
   box-sizing: border-box;
   overflow-y: auto;
   z-index: 10;

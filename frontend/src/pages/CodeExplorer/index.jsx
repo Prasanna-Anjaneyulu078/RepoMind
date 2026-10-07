@@ -187,23 +187,29 @@ const CodeExplorer = ({ activeRepo }) => {
   const handleCloseTab = (e, path) => {
     e.stopPropagation();
     
+    let newActivePath = activeFilePath;
+    let shouldUpdatePath = false;
+
     setOpenFiles(prev => {
       const next = prev.filter(f => f.path !== path);
       
       if (activeFilePath === path) {
+        shouldUpdatePath = true;
         const closedIndex = prev.findIndex(f => f.path === path);
         if (next.length === 0) {
-          setActiveFilePath(null);
-          setSearchParams({});
+          newActivePath = null;
         } else {
           const nextIndex = closedIndex > 0 ? closedIndex - 1 : 0;
-          const nextPath = next[nextIndex].path;
-          setActiveFilePath(nextPath);
-          setSearchParams({ file: nextPath });
+          newActivePath = next[nextIndex].path;
         }
       }
       return next;
     });
+
+    if (shouldUpdatePath) {
+      setActiveFilePath(newActivePath);
+      setSearchParams(newActivePath ? { file: newActivePath } : {});
+    }
   };
 
   const toggleFolder = (path) => {
@@ -259,8 +265,53 @@ const CodeExplorer = ({ activeRepo }) => {
   }
 
   const renderFileContent = () => {
+    if (!['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus)) {
+      return (
+        <div style={{ padding: '48px', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', maxWidth: '600px', margin: '0 auto' }}>
+          
+          <div className="empty-state-card" style={{ width: '100%', border: '1px solid var(--outline-variant)', borderRadius: '12px', padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: 'var(--surface)' }}>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px', color: 'var(--on-surface)' }}>
+              {repoStatus === 'QUEUED' && 'Repository queued'}
+              {repoStatus === 'INGESTING' && 'Analyzing repository'}
+              {repoStatus === 'FAILED' && 'Repository indexing failed'}
+              {repoStatus === 'NOT_INGESTED' && 'Repository not indexed'}
+            </h3>
+            
+            <p style={{ color: 'var(--on-surface-variant)', textAlign: 'center', marginBottom: '24px', lineHeight: '1.5' }}>
+              {repoStatus === 'QUEUED' && 'Preparing the repository for analysis...'}
+              {repoStatus === 'INGESTING' && 'RepoMind is analyzing the codebase and building its knowledge base. This may take a few minutes for larger repositories.'}
+              {repoStatus === 'FAILED' && 'RepoMind could not finish analyzing this repository. Please check your backend connection or rate limits.'}
+              {repoStatus === 'NOT_INGESTED' && 'This repository has not been indexed yet. Please click the "Sync" button in the top header to start indexing.'}
+            </p>
+
+            {(repoStatus === 'QUEUED' || repoStatus === 'INGESTING') && (
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>check_circle</span>
+                  <span style={{ color: 'var(--on-surface)' }}>Repository connected</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className={`material-symbols-outlined ${repoStatus === 'INGESTING' ? 'spinning' : ''}`} style={{ color: repoStatus === 'INGESTING' ? 'var(--primary)' : 'var(--on-surface-variant)', fontSize: '20px' }}>
+                    {repoStatus === 'INGESTING' ? 'sync' : 'radio_button_unchecked'}
+                  </span>
+                  <span style={{ color: repoStatus === 'INGESTING' ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>Reading repository files</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="material-symbols-outlined" style={{ color: 'var(--on-surface-variant)', fontSize: '20px' }}>radio_button_unchecked</span>
+                  <span style={{ color: 'var(--on-surface-variant)' }}>Building code index</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="material-symbols-outlined" style={{ color: 'var(--on-surface-variant)', fontSize: '20px' }}>radio_button_unchecked</span>
+                  <span style={{ color: 'var(--on-surface-variant)' }}>Preparing AI knowledge</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const activeFile = openFiles.find(f => f.path === activeFilePath);
-    
     if (!activeFile) {
       return (
         <div style={{ padding: '24px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -404,12 +455,9 @@ const CodeExplorer = ({ activeRepo }) => {
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)' }}>Loading repository files...</div>
             ) : repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus) ? (
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>
-                  {repoStatus === 'FAILED' ? 'error' : 'hourglass_empty'}
-                </span>
                 {repoStatus === 'NOT_INGESTED' && 'Repository files are not indexed yet.'}
                 {repoStatus === 'QUEUED' && 'Repository indexing is queued.'}
-                {repoStatus === 'INGESTING' && 'Analyzing repository files...'}
+                {repoStatus === 'INGESTING' && 'Indexing in progress...'}
                 {repoStatus === 'FAILED' && 'Repository indexing failed.'}
               </div>
             ) : tree.length === 0 ? (

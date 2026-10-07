@@ -27,7 +27,6 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
           <span className="sidebar-title">RepoMind</span>
         </NavLink>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="sidebar-version">v2.4</span>
           {onClose && (
             <button
               type="button"
@@ -45,32 +44,28 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
 
       <div className="sidebar-repo-selector-wrapper">
         <div
-          className="sidebar-repo-card"
+          className="sidebar-workspace-switcher"
           onClick={() => setDropdownOpen(!dropdownOpen)}
           role="button"
           tabIndex={0}
         >
-          <div className="sidebar-repo-header">
-            <div className="sidebar-repo-name-group">
-              <span className="status-dot"></span>
-              <span className="sidebar-repo-name">
+          <div className="workspace-switcher-left">
+            <div className="workspace-avatar">
+              {activeRepo ? activeRepo.name.charAt(0).toUpperCase() : 'R'}
+            </div>
+            <div className="workspace-info">
+              <span className="workspace-name">
                 {activeRepo ? activeRepo.name : 'Select Repository'}
               </span>
+              <span className="workspace-status">
+                <span className={`status-dot ${activeRepo?.ingestionStatus?.toLowerCase() || 'none'}`}></span>
+                {activeRepo ? (activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' : activeRepo.ingestionStatus === 'FAILED' ? 'Failed' : activeRepo.ingestionStatus === 'QUEUED' || activeRepo.ingestionStatus === 'INGESTING' ? 'Indexing...' : 'Not Indexed') : 'Not Indexed'}
+              </span>
             </div>
-            <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--on-surface-variant)' }}>
-              unfold_more
-            </span>
           </div>
-          <div className="sidebar-repo-meta">
-            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
-              fork_right
-            </span>
-            <span>{activeRepo ? activeRepo.branch : 'main'}</span>
-            <span style={{ color: 'var(--outline-variant)' }}>•</span>
-            <span className="sidebar-repo-meta-indexed">
-              {activeRepo ? (activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' : activeRepo.ingestionStatus === 'FAILED' ? 'Failed' : activeRepo.ingestionStatus === 'QUEUED' || activeRepo.ingestionStatus === 'INGESTING' ? 'Indexing...' : 'Not Indexed') : 'Not Indexed'}
-            </span>
-          </div>
+          <span className="material-symbols-outlined workspace-chevron">
+            unfold_more
+          </span>
         </div>
 
         {dropdownOpen && (

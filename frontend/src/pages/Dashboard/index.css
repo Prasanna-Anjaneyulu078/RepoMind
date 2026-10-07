@@ -1,5 +1,5 @@
 .dashboard-page {
-  padding: 24px 32px 48px;
+  padding: 24px 0 48px;
   width: 100%;
   flex: 1;
   min-width: 0;
@@ -283,23 +283,7 @@
   margin: 0;
 }
 
-.btn-action-primary {
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
-  background-color: var(--primary);
-  color: var(--on-primary);
-  font-size: 13px;
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
-  transition: background-color 0.15s ease;
-  border: none;
-  cursor: pointer;
-  margin-top: 8px;
-}
 
-.btn-action-primary:hover {
-  background-color: var(--primary-container);
-}
 
 
 /* Responsive Layout */

@@ -21,7 +21,13 @@ const startIngestion = async (req, res, next) => {
     }
 
     if (repo.ingestionStatus === 'INGESTING' || repo.ingestionStatus === 'EMBEDDING') {
-      return res.status(409).json({ success: false, message: 'Ingestion is already in progress' });
+      const isStalled = repo.ingestionStartedAt && (new Date() - new Date(repo.ingestionStartedAt)) > 10 * 60 * 1000;
+      if (isStalled) {
+        console.warn(`Repository ${id} appears stalled in ${repo.ingestionStatus}. Allowing retry.`);
+        await prisma.repository.update({ where: { id }, data: { ingestionStatus: 'FAILED', lastIngestionError: 'Ingestion stalled and was reset.' } });
+      } else {
+        return res.status(409).json({ success: false, message: 'Ingestion is already in progress' });
+      }
     }
     
     let isUpToDate = false;

@@ -41,7 +41,7 @@ const ErrorModal = ({ isOpen, title, message, onClose, onRetry }) => {
               Retry
             </button>
           )}
-          <button className="btn-error-ok" onClick={onClose}>
+          <button className="btn-action-primary" onClick={onClose}>
             OK
           </button>
         </div>

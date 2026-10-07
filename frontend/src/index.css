@@ -140,6 +140,42 @@ input, select, textarea {
 }
 
 /* =========================================================
+   Global Primary Action Button
+   ========================================================= */
+.btn-action-primary {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #2563eb;
+  font-family: var(--font-family-body);
+  font-weight: 600;
+  font-size: 14px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-action-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.btn-action-primary:active:not(:disabled) {
+  background: #1e40af;
+  border-color: #1e40af;
+}
+
+.btn-action-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================================================
    Global Card Overflow Safeguards (Mobile & Tablet) 
    ========================================================= */
 

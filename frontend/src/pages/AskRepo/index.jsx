@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import RepoMindLogo from '../../assets/RepoMind_Title_Logo.png';
 import ConversationHistory from './components/ConversationHistory';
 import { fetchApi } from '../../utils/apiClient.js';
@@ -11,6 +11,8 @@ import './index.css';
 
 const AskRepo = ({ activeRepo }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navComponentContext = location.state?.componentContext || null;
   const { showError } = useError();
   const [conversations, setConversations] = useState([]);
   const [recommendedQuestions, setRecommendedQuestions] = useState([]);
@@ -20,6 +22,12 @@ const AskRepo = ({ activeRepo }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (navComponentContext && !activeConversationId) {
+      setQuestion(`Explain how ${navComponentContext.name} fits into the system architecture.`);
+    }
+  }, [navComponentContext, activeConversationId]);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -87,12 +95,17 @@ const AskRepo = ({ activeRepo }) => {
     try {
       const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       let convId = activeConversationId;
+      const activeConversation = conversations.find(c => c.id === activeConversationId);
+      const currentComponentContext = activeConversationId ? activeConversation?.componentContext : navComponentContext;
+
       if (!convId) {
         if (!activeRepo || !activeRepo.id) throw new Error("No active repository to start conversation in.");
         // Create conversation first
         const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/conversations`, {
           method: 'POST',
-          credentials: 'include'
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ componentContext: currentComponentContext })
         }, true); // skip generic popup
         
         if (data.success) {
@@ -129,12 +142,13 @@ const AskRepo = ({ activeRepo }) => {
         loadInitialData();
       }
     } catch (err) {
+      const errorMessage = err.message || 'Unable to analyze the repository right now. Please try again.';
       showError({
         ...err,
         title: 'Unable to Send Message',
-        message: 'Your question could not be processed. Please try again.'
+        message: errorMessage
       });
-      setError('Unable to analyze the repository right now. Please try again.');
+      setError(errorMessage);
       setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id)); // rollback
       setQuestion(currentQuestion); // restore composer
     } finally {
@@ -208,6 +222,43 @@ const AskRepo = ({ activeRepo }) => {
         
         <div className="chat-container">
           
+          {(() => {
+            const activeConversation = conversations.find(c => c.id === activeConversationId);
+            const currentContext = activeConversationId ? activeConversation?.componentContext : navComponentContext;
+            
+            if (!currentContext) return null;
+
+            return (
+              <div className="component-context-card" style={{
+                margin: '16px', padding: '16px', backgroundColor: 'var(--surface-container-low)',
+                borderRadius: '8px', borderLeft: '4px solid var(--primary)', display: 'flex', flexDirection: 'column', gap: '8px',
+                flexShrink: 0
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--on-surface)' }}>{currentContext.name}</h4>
+                    <span style={{ fontSize: '12px', color: 'var(--on-surface-variant)' }}>{currentContext.role}</span>
+                  </div>
+                  <button 
+                    onClick={() => navigate(`/code-explorer?file=${encodeURIComponent(currentContext.filePath)}`)}
+                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>code</span>
+                    Open in Code Explorer
+                  </button>
+                </div>
+                <div style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--primary)', background: 'var(--surface-container)', padding: '4px 8px', borderRadius: '4px', alignSelf: 'flex-start' }}>
+                  {currentContext.filePath}
+                </div>
+                {currentContext.description && (
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--on-surface-variant)', lineHeight: '1.4' }}>
+                    {currentContext.description}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="chat-messages-container">
             {isChatEmpty ? (
               <div className="welcome-state">

@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const createConversation = async (req, res, next) => {
   try {
     const { id: repositoryId } = req.params;
+    const { componentContext } = req.body;
     
     // Verify repository exists and belongs to user
     const repo = await prisma.repository.findFirst({
@@ -14,12 +15,13 @@ const createConversation = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Repository not found or unauthorized' });
     }
 
-    const conversation = await conversationService.createConversation(req.user.id, repositoryId);
+    const conversation = await conversationService.createConversation(req.user.id, repositoryId, 'New Conversation', componentContext);
     res.status(201).json({ success: true, conversation });
   } catch (err) {
     next(err);
   }
 };
+
 
 const getConversations = async (req, res, next) => {
   try {

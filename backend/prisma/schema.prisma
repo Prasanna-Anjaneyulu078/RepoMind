@@ -63,6 +63,8 @@ model Repository {
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   files              RepositoryFile[]
   conversations      Conversation[]
+  architecture       RepositoryArchitecture?
+  onboarding         RepositoryOnboarding?
 
   @@index([userId])
   @@index([githubRepositoryId])
@@ -125,6 +127,7 @@ model Conversation {
   userId       String
   repositoryId String
   title        String   @default("New Conversation")
+  componentContext Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -151,3 +154,38 @@ model ConversationMessage {
   @@index([conversationId])
   @@index([conversationId, createdAt])
 }
+
+model RepositoryArchitecture {
+  id               String     @id @default(uuid())
+  repositoryId     String     @unique
+  commitSha        String
+  status           String     @default("NOT_AVAILABLE") // NOT_AVAILABLE, ANALYZING, COMPLETED, FAILED, STALE
+  summary          String?
+  architectureType String?
+  analysisData     Json?
+  error            String?
+  generatedAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  repository       Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId])
+}
+
+model RepositoryOnboarding {
+  id           String     @id @default(uuid())
+  repositoryId String     @unique
+  commitSha    String
+  status       String     @default("NOT_AVAILABLE") // NOT_AVAILABLE, GENERATING, READY, FAILED, STALE
+  data         Json?
+  error        String?
+  generatedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId])
+}
+

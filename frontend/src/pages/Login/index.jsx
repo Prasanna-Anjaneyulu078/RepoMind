@@ -82,7 +82,7 @@ const Login = () => {
 
         <button 
           type="button" 
-          className={`btn-github-auth ${isAuthenticating ? 'loading' : ''}`}
+          className={`btn-action-primary ${isAuthenticating ? 'loading' : ''}`}
           onClick={() => handleGitHubLogin(false)}
           disabled={isAuthenticating}
         >

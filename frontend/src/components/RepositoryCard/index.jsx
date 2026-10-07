@@ -3,19 +3,12 @@ import { formatDate } from '../../utils/dateUtils';
 import './index.css';
 
 const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) => {
-  const [showMenu, setShowMenu] = React.useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [isRemoving, setIsRemoving] = React.useState(false);
   const [removeError, setRemoveError] = React.useState(null);
 
-  const toggleMenu = (e) => {
-    e.stopPropagation();
-    setShowMenu(!showMenu);
-  };
-
   const handleDeleteClick = (e) => {
     e.stopPropagation();
-    setShowMenu(false);
     setShowDeleteConfirm(true);
     setRemoveError(null);
   };
@@ -55,13 +48,24 @@ const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) =>
           {repo.updatedAt && (
             <span className="repo-card-date">{formatDate(repo.updatedAt)}</span>
           )}
-          <button
-            type="button"
-            className="btn-action-light repo-card-open-btn"
-            onClick={() => onOpenRepo(repo)}
-          >
-            Open Repo &rarr;
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="btn-repo-remove-icon"
+              onClick={handleDeleteClick}
+              aria-label="Remove repository"
+              title="Remove repository"
+            >
+              <span className="material-symbols-outlined">delete</span>
+            </button>
+            <button
+              type="button"
+              className="btn-action-light repo-card-open-btn"
+              onClick={() => onOpenRepo(repo)}
+            >
+              Open Repo &rarr;
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -81,36 +85,6 @@ const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) =>
               {repo.name}
             </h2>
           </div>
-          <div style={{ position: 'relative' }}>
-            <button 
-              className="btn-icon" 
-              onClick={toggleMenu}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)' }}
-            >
-              <span className="material-symbols-outlined">more_vert</span>
-            </button>
-            {showMenu && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                backgroundColor: 'var(--surface)',
-                border: '1px solid var(--outline)',
-                borderRadius: '8px',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                zIndex: 10,
-                minWidth: '180px',
-                padding: '8px 0'
-              }}>
-                <button
-                  className="repo-menu-remove-btn"
-                  onClick={handleDeleteClick}
-                >
-                  Remove
-                </button>
-              </div>
-            )}
-          </div>
         </div>
         <div className="repo-card-owner" title={repo.fullName}>
           {repo.fullName}
@@ -127,13 +101,24 @@ const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) =>
         {repo.updatedAt && (
           <span className="repo-card-date">{formatDate(repo.updatedAt)}</span>
         )}
-        <button
-          type="button"
-          className="btn-action-light repo-card-open-btn"
-          onClick={() => onOpenRepo(repo)}
-        >
-          Open Repo &rarr;
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn-repo-remove-icon"
+            onClick={handleDeleteClick}
+            aria-label="Remove repository"
+            title="Remove repository"
+          >
+            <span className="material-symbols-outlined">delete</span>
+          </button>
+          <button
+            type="button"
+            className="btn-action-light repo-card-open-btn"
+            onClick={() => onOpenRepo(repo)}
+          >
+            Open Repo &rarr;
+          </button>
+        </div>
       </div>
 
       {showDeleteConfirm && (

@@ -135,19 +135,42 @@
   }
 }
 
-.repo-menu-remove-btn {
-  display: block;
-  width: 100%;
-  padding: 8px 16px;
-  text-align: left;
-  background: transparent;
-  border: none;
+.btn-repo-remove-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  background-color: transparent;
+  color: var(--on-surface-variant);
   cursor: pointer;
-  color: var(--error);
-  font-size: 14px;
+  transition: all 0.2s ease;
 }
-.repo-menu-remove-btn:hover {
-  background-color: var(--error-container);
+
+.btn-repo-remove-icon:hover {
+  background-color: var(--error-container, #fce8e8);
+  color: var(--error);
+}
+
+.btn-repo-remove-icon:focus-visible {
+  outline: 2px solid var(--error);
+  outline-offset: 2px;
+}
+
+.btn-repo-remove-icon:active {
+  transform: scale(0.95);
+}
+
+.btn-repo-remove-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-repo-remove-icon .material-symbols-outlined {
+  font-size: 18px;
 }
 .btn-remove-confirm {
   background-color: var(--error) !important;

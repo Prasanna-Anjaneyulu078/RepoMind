@@ -182,7 +182,7 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
 
         <div className="modal-footer">
           {modalState === 'INPUT' && (
-            <button type="button" className="btn-open-repo" onClick={handleConnectClick} style={{ width: '100%', justifyContent: 'center' }}>
+            <button type="button" className="btn-action-primary" onClick={handleConnectClick} style={{ width: '100%', justifyContent: 'center' }}>
               <span>Connect Repository</span>
             </button>
           )}
@@ -194,7 +194,7 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
           )}
 
           {modalState === 'READY' && (
-            <button type="button" className="btn-open-repo" onClick={handleOpenRepo} style={{ width: '100%', justifyContent: 'center' }}>
+            <button type="button" className="btn-action-primary" onClick={handleOpenRepo} style={{ width: '100%', justifyContent: 'center' }}>
               <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
                 auto_stories
               </span>

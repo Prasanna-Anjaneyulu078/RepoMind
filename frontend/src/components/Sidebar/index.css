@@ -61,63 +61,87 @@
   position: relative;
 }
 
-.sidebar-repo-card {
-  padding: 8px 10px;
-  border-radius: var(--radius-lg);
-  background-color: var(--surface-container-low);
-  border: 1px solid rgba(199, 196, 216, 0.3);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.sidebar-repo-card:hover {
-  border-color: rgba(199, 196, 216, 0.7);
-  background-color: var(--surface-container);
-}
-
-.sidebar-repo-header {
+.sidebar-workspace-switcher {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
-.sidebar-repo-name-group {
+.sidebar-workspace-switcher:hover {
+  background-color: var(--surface-container-high);
+}
+
+.workspace-switcher-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--tertiary-container);
+.workspace-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
   flex-shrink: 0;
 }
 
-.sidebar-repo-name {
+.workspace-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workspace-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
-.sidebar-repo-meta {
+.workspace-status {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-family: var(--font-family-mono);
+  gap: 4px;
   font-size: 11px;
   color: var(--on-surface-variant);
+  margin-top: 2px;
 }
 
-.sidebar-repo-meta-indexed {
-  color: var(--tertiary);
-  font-weight: 500;
+.workspace-chevron {
+  font-size: 16px;
+  color: var(--on-surface-variant);
+  flex-shrink: 0;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--outline-variant);
+  flex-shrink: 0;
+}
+.status-dot.completed {
+  background-color: var(--tertiary-container);
+}
+.status-dot.failed {
+  background-color: var(--error);
+}
+.status-dot.queued, .status-dot.ingesting {
+  background-color: var(--primary);
 }
 
 .repo-dropdown-menu {

@@ -4,6 +4,8 @@ const ingestionController = require('../controllers/ingestionController');
 const askController = require('../controllers/askController');
 const conversationController = require('../controllers/conversationController');
 const codeExplorerController = require('../controllers/codeExplorerController');
+const architectureController = require('../controllers/architectureController');
+const onboardingRoutes = require('./onboardingRoutes');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -22,6 +24,13 @@ router.post('/:id/sync', ingestionController.startIngestion); // Same entry poin
 // Code Explorer Phase
 router.get('/:id/files/tree', codeExplorerController.getTree);
 router.get('/:id/files/content', codeExplorerController.getFileContent);
+
+// Architecture Phase
+router.get('/:id/architecture', architectureController.getArchitecture);
+router.post('/:id/architecture/generate', architectureController.generateArchitecture);
+
+// Onboarding Phase
+router.use('/:id/onboarding', onboardingRoutes);
 
 // Phase 6 legacy entry
 router.post('/:id/ask', askController.askRepository);

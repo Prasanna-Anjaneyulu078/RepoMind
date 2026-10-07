@@ -137,7 +137,7 @@ const embedRepositoryChunks = async (repositoryId) => {
   } catch (err) {
     console.error('Repository embedding failed:', err);
     await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
-    throw err;
+    // Do not throw the error upwards, allow the ingestion pipeline to finish gracefully
   }
 };
 
