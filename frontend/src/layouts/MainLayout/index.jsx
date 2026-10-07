@@ -23,8 +23,7 @@ const MainLayout = ({
     if (!activeRepo || !activeRepo.id) return;
     try {
       addToast('Checking repository for changes...', 'sync');
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/sync`, {
+      const data = await fetchApi(`/api/repositories/${activeRepo.id}/sync`, {
         method: 'POST',
         credentials: 'include'
       }, true);

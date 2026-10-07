@@ -183,7 +183,7 @@
 }
 
 .ob-entry-num {
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--primary-container);
   line-height: 1;
@@ -197,21 +197,21 @@
 }
 
 .ob-entry-role {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--on-surface);
 }
 
 .ob-entry-path {
   font-family: var(--font-family-mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--primary);
 }
 
 .ob-entry-desc {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--on-surface-variant);
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .ob-entry-actions {
@@ -222,7 +222,7 @@
 
 .btn-sm {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 /* Flow */

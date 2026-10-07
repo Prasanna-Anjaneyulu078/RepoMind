@@ -53,10 +53,9 @@ const AskRepo = ({ activeRepo }) => {
   const loadInitialData = async () => {
     if (!activeRepo || !activeRepo.id) return;
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const [convData, recData] = await Promise.all([
-        fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/conversations`, { credentials: 'include' }),
-        fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/recommended-questions`, { credentials: 'include' })
+        fetchApi(`/api/repositories/${activeRepo.id}/conversations`, { credentials: 'include' }),
+        fetchApi(`/api/repositories/${activeRepo.id}/recommended-questions`, { credentials: 'include' })
       ]);
 
       if (convData.success) setConversations(convData.data);
@@ -68,8 +67,7 @@ const AskRepo = ({ activeRepo }) => {
 
   const loadMessages = async (conversationId) => {
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/conversations/${conversationId}`, {
+      const data = await fetchApi(`/api/conversations/${conversationId}`, {
         credentials: 'include'
       });
       if (data.success && data.data) {
@@ -93,7 +91,6 @@ const AskRepo = ({ activeRepo }) => {
     setError(null);
 
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       let convId = activeConversationId;
       const activeConversation = conversations.find(c => c.id === activeConversationId);
       const currentComponentContext = activeConversationId ? activeConversation?.componentContext : navComponentContext;
@@ -101,7 +98,7 @@ const AskRepo = ({ activeRepo }) => {
       if (!convId) {
         if (!activeRepo || !activeRepo.id) throw new Error("No active repository to start conversation in.");
         // Create conversation first
-        const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/conversations`, {
+        const data = await fetchApi(`/api/repositories/${activeRepo.id}/conversations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -116,7 +113,7 @@ const AskRepo = ({ activeRepo }) => {
       }
 
       // Post message
-      const data = await fetchApi(`${backendUrl}/api/conversations/${convId}/messages`, {
+      const data = await fetchApi(`/api/conversations/${convId}/messages`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'

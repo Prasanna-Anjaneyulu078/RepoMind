@@ -39,8 +39,7 @@ const Dashboard = ({ onSelectRepo, onOpenConnectModal }) => {
     let isMounted = true;
     const fetchDashboard = async () => {
       try {
-        const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        const data = await fetchApi(`${backendUrl}/api/dashboard`, {
+        const data = await fetchApi(`/api/dashboard`, {
           credentials: 'include'
         });
         if (data.success && isMounted) {

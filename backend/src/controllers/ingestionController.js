@@ -20,7 +20,7 @@ const startIngestion = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Repository not found' });
     }
 
-    if (repo.ingestionStatus === 'INGESTING' || repo.ingestionStatus === 'EMBEDDING') {
+    if (['QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(repo.ingestionStatus)) {
       const isStalled = repo.ingestionStartedAt && (new Date() - new Date(repo.ingestionStartedAt)) > 10 * 60 * 1000;
       if (isStalled) {
         console.warn(`Repository ${id} appears stalled in ${repo.ingestionStatus}. Allowing retry.`);
@@ -28,6 +28,20 @@ const startIngestion = async (req, res, next) => {
       } else {
         return res.status(409).json({ success: false, message: 'Ingestion is already in progress' });
       }
+    }
+    
+    // Atomic lock to prevent duplicate ingestion jobs
+    const lockResult = await prisma.repository.updateMany({
+      where: { 
+        id, 
+        userId, 
+        ingestionStatus: { notIn: ['QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'] }
+      },
+      data: { ingestionStatus: 'QUEUED' }
+    });
+
+    if (lockResult.count === 0) {
+      return res.status(409).json({ success: false, message: 'Ingestion is already in progress' });
     }
     
     let isUpToDate = false;
@@ -78,7 +92,15 @@ const getIngestionStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Repository not found' });
     }
 
-    res.json({ success: true, data: repo });
+    const detailedProgress = repositoryIngestionService.getProgress(id);
+
+    res.json({ 
+      success: true, 
+      data: {
+        ...repo,
+        detailedProgress: detailedProgress || null
+      } 
+    });
   } catch(err) {
     next(err);
   }

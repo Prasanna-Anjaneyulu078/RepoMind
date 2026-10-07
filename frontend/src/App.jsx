@@ -34,8 +34,7 @@ const App = () => {
 
     setIsRepositoriesLoading(true);
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories`, {
+      const data = await fetchApi(`/api/repositories`, {
         credentials: 'include'
       }, false, () => fetchRepositories(isMounted));
 

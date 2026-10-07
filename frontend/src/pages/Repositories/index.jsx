@@ -19,8 +19,7 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDe
     setIsLoading(true);
     setError(null);
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories?page=${page}&limit=6&search=${encodeURIComponent(searchTerm)}`, {
+      const data = await fetchApi(`/api/repositories?page=${page}&limit=6&search=${encodeURIComponent(searchTerm)}`, {
         credentials: 'include'
       }, true); // skip popup, we handle inline
 
@@ -63,8 +62,7 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDe
 
   const handleDeleteRepo = async (repo) => {
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories/${repo.id}`, {
+      const data = await fetchApi(`/api/repositories/${repo.id}`, {
         method: 'DELETE',
         credentials: 'include'
       }, true); // skip automatic popup

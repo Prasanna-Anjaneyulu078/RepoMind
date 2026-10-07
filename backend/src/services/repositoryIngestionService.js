@@ -6,9 +6,18 @@ const embeddingService = require('./embeddingService');
 
 const GITHUB_API_URL = 'https://api.github.com';
 
+const progressStore = new Map();
+
+const getProgress = (repositoryId) => {
+  return progressStore.get(repositoryId) || null;
+};
+
+const getFallbackToken = (userToken) => userToken || process.env.GITHUB_ACCESS_TOKEN;
+
 const getLatestCommitSha = async (token, owner, repo, branch) => {
   const url = `${GITHUB_API_URL}/repos/${owner}/${repo}/commits/${branch}`;
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const effectiveToken = getFallbackToken(token);
+  const headers = effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {};
   const response = await axios.get(url, { headers });
   return response.data.sha;
 };
@@ -39,7 +48,8 @@ const updateIngestionStatus = async (repositoryId, status, error = null, fileCou
 
 const getRepositoryTree = async (token, owner, repo, branch) => {
   const url = `${GITHUB_API_URL}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const effectiveToken = getFallbackToken(token);
+  const headers = effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {};
 
   const fetchTreeRecursively = async (treeSha, basePath = '') => {
     const dirUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/git/trees/${treeSha}`;
@@ -88,33 +98,39 @@ const getRepositoryTree = async (token, owner, repo, branch) => {
   }
 };
 
-const fetchFileContent = async (token, owner, repo, path) => {
-  const url = `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${path}`;
-  const config = {
-    headers: { 
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      Accept: 'application/vnd.github.v3.raw'
-    },
+const fetchFileContent = async (token, owner, repo, branch, path) => {
+  // Try raw.githubusercontent.com first to bypass REST API rate limits
+  const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+  const rawConfig = {
+    headers: token ? { Authorization: `token ${token}` } : {},
     responseType: 'text',
     transformResponse: [data => data]
   };
+
   try {
-    const response = await axios.get(url, config);
+    const response = await axios.get(rawUrl, rawConfig);
     return response.data;
-  } catch (err) {
-    if (err.response && (err.response.status === 401 || err.response.status === 403 || err.response.status === 404)) {
-      try {
-        const retryConfig = { headers: { Accept: 'application/vnd.github.v3.raw' }, responseType: 'text', transformResponse: [data => data] };
-        const retryResponse = await axios.get(url, retryConfig);
-        return retryResponse.data;
-      } catch (retryErr) {
-        if (retryErr.isAxiosError) {
-          throw retryErr;
-        }
-        throw new Error(`GitHub API error during file fetch: ${retryErr.message}`);
+  } catch (rawErr) {
+    // If raw fails (e.g. some private repos or tokens don't work with raw), fallback to REST API
+    const url = `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+    const effectiveToken = getFallbackToken(token);
+    const config = {
+      headers: { 
+        ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
+        Accept: 'application/vnd.github.v3.raw'
+      },
+      responseType: 'text',
+      transformResponse: [data => data]
+    };
+    try {
+      const response = await axios.get(url, config);
+      return response.data;
+    } catch (err) {
+      if (err.response && (err.response.status === 401 || err.response.status === 403 || err.response.status === 404)) {
+        throw err;
       }
+      throw new Error(`Failed to fetch file content: ${err.message}`);
     }
-    throw err;
   }
 };
 
@@ -129,15 +145,30 @@ const embedRepositoryChunks = async (repositoryId) => {
       WHERE f."repositoryId" = ${repositoryId} AND e.id IS NULL
     `;
     
+    const progress = progressStore.get(repositoryId);
+    if (progress) {
+      progress.stage = 'Generating embeddings';
+      progress.totalChunks = chunksWithoutEmbeddings.length;
+      progress.embeddedChunks = 0;
+    }
+
     if (chunksWithoutEmbeddings.length > 0) {
-      await embeddingService.embedChunks(chunksWithoutEmbeddings);
+      // Overwrite the global embedding callback to track chunks progress if needed, 
+      // but simpler to just let it batch and we can track batch completions. 
+      // For now, we will just await it. To be accurate, we could pass a progress callback.
+      await embeddingService.embedChunks(chunksWithoutEmbeddings, (embedded) => {
+         if (progress) progress.embeddedChunks += embedded;
+      });
     }
     
+    if (progress) progress.stage = 'Repository ready';
     await updateIngestionStatus(repositoryId, 'COMPLETED');
   } catch (err) {
     console.error('Repository embedding failed:', err);
     await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
     // Do not throw the error upwards, allow the ingestion pipeline to finish gracefully
+  } finally {
+    setTimeout(() => progressStore.delete(repositoryId), 5 * 60 * 1000); // Clear after 5 mins
   }
 };
 
@@ -159,14 +190,32 @@ const ingestRepository = async (token, repositoryId, userId) => {
 
   await updateIngestionStatus(repositoryId, 'INGESTING');
 
+  progressStore.set(repositoryId, {
+    stage: 'Discovering repository files',
+    discovered: 0,
+    processed: 0,
+    failed: 0,
+    skipped: 0,
+    currentFile: '',
+    totalChunks: 0,
+    embeddedChunks: 0
+  });
+
   try {
     const latestCommitSha = await getLatestCommitSha(token, repo.owner, repo.name, repo.defaultBranch);
     const tree = await getRepositoryTree(token, repo.owner, repo.name, repo.defaultBranch);
     
+    const progress = progressStore.get(repositoryId);
+
     // Filter files
     const ingestableFiles = tree.filter(item => 
       item.type === 'blob' && fileFilterService.isIngestableFile(item.path, item.size)
     );
+
+    if (progress) {
+      progress.discovered = ingestableFiles.length;
+      progress.stage = 'Processing files';
+    }
 
     const existingFiles = await prisma.repositoryFile.findMany({
       where: { repositoryId }
@@ -183,26 +232,50 @@ const ingestRepository = async (token, repositoryId, userId) => {
       });
     }
 
-    let processedCount = 0;
-    let failedCount = 0;
-    let skippedCount = 0;
+    const asyncPool = async (poolLimit, array, iteratorFn) => {
+      const ret = [];
+      const executing = [];
+      for (const item of array) {
+        const p = Promise.resolve().then(() => iteratorFn(item));
+        ret.push(p);
+        if (poolLimit <= array.length) {
+          const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+          executing.push(e);
+          if (executing.length >= poolLimit) {
+            await Promise.race(executing);
+          }
+        }
+      }
+      return Promise.all(ret);
+    };
 
-    for (const file of ingestableFiles) {
+    const manifest = ingestableFiles.map(file => ({
+      ...file,
+      status: 'DISCOVERED',
+      error: null
+    }));
+
+    await asyncPool(10, manifest, async (file) => {
       const existing = existingMap.get(file.path);
 
+      if (progress) progress.currentFile = file.path;
+
       if (existing && existing.sha === file.sha) {
-        processedCount++;
-        continue;
+        file.status = 'PROCESSED';
+        if (progress) progress.processed++;
+        return;
       }
 
       try {
-        const rawContent = await fetchFileContent(token, repo.owner, repo.name, file.path);
+        const rawContent = await fetchFileContent(token, repo.owner, repo.name, repo.defaultBranch, file.path);
         
         // Deep binary check
         if (rawContent.indexOf('\0') !== -1) {
           console.warn(`File ${file.path} contains null bytes, treating as binary and skipping.`);
-          skippedCount++;
-          continue; // Safely skip this file
+          file.status = 'SKIPPED';
+          file.error = 'Binary content detected';
+          if (progress) progress.skipped++;
+          return;
         }
 
         const normalizedContent = rawContent.replace(/\r\n/g, '\n');
@@ -212,62 +285,71 @@ const ingestRepository = async (token, repositoryId, userId) => {
         const language = fileFilterService.getFileLanguage(ext, filename);
         const chunks = chunkingService.chunkContent(normalizedContent);
 
-        try {
-          await prisma.$transaction(async (tx) => {
-            let repFileId;
+        await prisma.$transaction(async (tx) => {
+          let repFileId;
 
-            if (existing) {
-              await tx.repositoryFile.update({
-                where: { id: existing.id },
-                data: {
-                  size: file.size || 0,
-                  sha: file.sha,
-                  content: normalizedContent,
-                  extension: ext,
-                  language
-                }
-              });
-              repFileId = existing.id;
-              await tx.fileChunk.deleteMany({
-                where: { repositoryFileId: repFileId }
-              });
-            } else {
-              const newFile = await tx.repositoryFile.create({
-                data: {
-                  repositoryId: repo.id,
-                  path: file.path,
-                  name: file.path.split('/').pop(),
-                  extension: ext,
-                  language,
-                  size: file.size || 0,
-                  sha: file.sha,
-                  content: normalizedContent
-                }
-              });
-              repFileId = newFile.id;
-            }
+          if (existing) {
+            await tx.repositoryFile.update({
+              where: { id: existing.id },
+              data: {
+                size: file.size || 0,
+                sha: file.sha,
+                content: normalizedContent,
+                extension: ext,
+                language
+              }
+            });
+            repFileId = existing.id;
+            await tx.fileChunk.deleteMany({
+              where: { repositoryFileId: repFileId }
+            });
+          } else {
+            const newFile = await tx.repositoryFile.create({
+              data: {
+                repositoryId: repo.id,
+                path: file.path,
+                name: file.path.split('/').pop(),
+                extension: ext,
+                language,
+                size: file.size || 0,
+                sha: file.sha,
+                content: normalizedContent
+              }
+            });
+            repFileId = newFile.id;
+          }
 
-            if (chunks.length > 0) {
-              await tx.fileChunk.createMany({
-                data: chunks.map(c => ({
-                  repositoryFileId: repFileId,
-                  ...c
-                }))
-              });
-            }
-          });
-        } catch (dbErr) {
-          throw new Error(`Failed to persist file ${file.path}: ${dbErr.message}`);
-        }
+          if (chunks.length > 0) {
+            await tx.fileChunk.createMany({
+              data: chunks.map(c => ({
+                repositoryFileId: repFileId,
+                ...c
+              }))
+            });
+          }
+        });
 
-        processedCount++;
+        file.status = 'PROCESSED';
+        if (progress) progress.processed++;
       } catch (fileErr) {
-        failedCount++;
+        file.status = 'FAILED';
+        file.error = fileErr.message;
+        if (progress) progress.failed++;
         if (fileErr.response && (fileErr.response.status === 401 || fileErr.response.status === 403 || fileErr.response.status === 429)) {
+            // Throw immediately for unrecoverable auth/rate limit errors
             throw new Error(`Unrecoverable GitHub API error during file fetch (${fileErr.response.status}): ${fileErr.message}`);
         }
         console.error(`Failed to ingest file ${file.path}: ${fileErr.message}`);
       }
+    });
+
+    const processedCount = manifest.filter(f => f.status === 'PROCESSED').length;
+    const skippedCount = manifest.filter(f => f.status === 'SKIPPED').length;
+    const failedCount = manifest.filter(f => f.status === 'FAILED').length;
+    const unaccountedFiles = manifest.filter(f => !['PROCESSED', 'SKIPPED', 'FAILED'].includes(f.status));
+
+    if (unaccountedFiles.length > 0) {
+      throw new Error(`Coverage validation failed: ${unaccountedFiles.length} eligible files unaccounted for.`);
     }
 
     if (failedCount > 0 && processedCount === 0 && skippedCount === 0) {
@@ -294,5 +376,6 @@ const ingestRepository = async (token, repositoryId, userId) => {
 module.exports = {
   getLatestCommitSha,
   ingestRepository,
-  updateIngestionStatus
+  updateIngestionStatus,
+  getProgress
 };

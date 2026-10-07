@@ -13,8 +13,7 @@ const Architecture = ({ activeRepo }) => {
   const fetchArchitecture = useCallback(async () => {
     if (!activeRepo) return;
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const result = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/architecture`, {
+      const result = await fetchApi(`/api/repositories/${activeRepo.id}/architecture`, {
         credentials: 'include'
       });
       if (result.success && result.data) {
@@ -53,8 +52,7 @@ const Architecture = ({ activeRepo }) => {
   const generateArchitecture = async () => {
     try {
       setStatus('ANALYZING');
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/architecture/generate`, {
+      await fetchApi(`/api/repositories/${activeRepo.id}/architecture/generate`, {
         method: 'POST',
         credentials: 'include'
       });
@@ -84,7 +82,7 @@ const Architecture = ({ activeRepo }) => {
     );
   }
 
-  if (activeRepo.ingestionStatus === 'NOT_INGESTED' || activeRepo.ingestionStatus === 'INGESTING' || activeRepo.ingestionStatus === 'QUEUED') {
+  if (['NOT_INGESTED', 'QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(activeRepo.ingestionStatus)) {
     return (
       <div className="architecture-page">
         <div className="empty-state-card center-card" style={{margin: 'auto', textAlign: 'center'}}>

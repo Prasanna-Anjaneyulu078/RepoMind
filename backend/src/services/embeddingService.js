@@ -37,22 +37,37 @@ const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
 };
 
 /**
- * Batch embed chunks with bounded concurrency
+ * Batch embed chunks natively using Gemini API array support with retry logic
  */
-const generateBatchEmbeddings = async (texts) => {
+const generateBatchEmbeddings = async (texts, retries = 5, initialDelay = 3000) => {
   if (!texts || texts.length === 0) return [];
-  const results = [];
-  const BATCH_SIZE = 5; // Reduced from 10 to ease burst rate
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const promises = batch.map(text => generateEmbedding(text));
-    const batchResults = await Promise.all(promises);
-    results.push(...batchResults);
-    if (i + BATCH_SIZE < texts.length) {
-      await delay(1000); // 1s throttle between batches
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await ai.models.embedContent({
+        model: EMBEDDING_MODEL,
+        contents: texts, // Natively accepts array of strings for batching
+        config: { outputDimensionality: EMBEDDING_DIMENSION }
+      });
+      
+      if (!response.embeddings || response.embeddings.length === 0) {
+        throw new Error('No embeddings returned by Gemini API');
+      }
+      
+      return response.embeddings.map(e => e.values);
+    } catch (error) {
+      const isRateLimit = error.status === 429 || (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('RESOURCE_EXHAUSTED')));
+      
+      if (isRateLimit && i < retries - 1) {
+        const retryAfter = error.response?.headers?.['retry-after'];
+        let waitTime = retryAfter ? parseInt(retryAfter) * 1000 : (initialDelay * Math.pow(2, i) + Math.random() * 1000);
+        console.warn(`[EmbeddingService] API rate limit (429) for batch of ${texts.length}. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
+        await delay(waitTime);
+      } else {
+        throw error;
+      }
     }
   }
-  return results;
 };
 
 /**
@@ -81,21 +96,50 @@ const embedChunk = async (chunkId, content) => {
 };
 
 /**
- * Persist multiple chunks
+ * Persist multiple chunks using true API batching
  */
-const embedChunks = async (chunks) => {
-  const BATCH_SIZE = 3; // Throttled from 5 to prevent simultaneous rate hits
+const embedChunks = async (chunks, onProgress = null) => {
+  // Use a sensible configurable batch size (up to 100 is typically safe for Gemini depending on token limits)
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
   let successCount = 0;
+  
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     const batch = chunks.slice(i, i + BATCH_SIZE);
-    await Promise.all(
-      batch.map(async (c) => {
-        await embedChunk(c.id, c.content);
-        successCount++;
-      })
-    );
+    
+    try {
+      const vectors = await generateBatchEmbeddings(batch.map(c => c.content));
+      
+      const validEmbeddings = vectors.map((v, idx) => ({ chunk: batch[idx], vector: v }))
+                                     .filter(e => e && e.vector && e.vector.length === EMBEDDING_DIMENSION);
+
+      if (validEmbeddings.length > 0) {
+        // Batch DB writes inside a transaction for efficiency
+        await prisma.$transaction(
+          validEmbeddings.map(e => 
+            prisma.$executeRaw`
+              INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
+              VALUES (
+                gen_random_uuid(),
+                ${e.chunk.id},
+                ${EMBEDDING_MODEL},
+                ${EMBEDDING_DIMENSION},
+                ${e.vector}::vector,
+                NOW()
+              )
+              ON CONFLICT ("fileChunkId", model)
+              DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
+            `
+          )
+        );
+        successCount += validEmbeddings.length;
+        if (onProgress) onProgress(validEmbeddings.length);
+      }
+    } catch (e) {
+      console.error(`Failed to embed batch of chunks: ${e.message}`);
+    }
+
     if (i + BATCH_SIZE < chunks.length) {
-      await delay(1500); // Throttling 1.5s between chunks batch
+      await delay(500); // Gentle throttling between consecutive batch requests
     }
   }
   return successCount;

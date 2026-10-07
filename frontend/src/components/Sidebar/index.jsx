@@ -59,7 +59,12 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
               </span>
               <span className="workspace-status">
                 <span className={`status-dot ${activeRepo?.ingestionStatus?.toLowerCase() || 'none'}`}></span>
-                {activeRepo ? (activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' : activeRepo.ingestionStatus === 'FAILED' ? 'Failed' : activeRepo.ingestionStatus === 'QUEUED' || activeRepo.ingestionStatus === 'INGESTING' ? 'Indexing...' : 'Not Indexed') : 'Not Indexed'}
+                {activeRepo ? (
+                  activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' :
+                  (activeRepo.ingestionStatus === 'FAILED' || activeRepo.ingestionStatus === 'EMBEDDING_FAILED') ? 'Failed' :
+                  ['QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(activeRepo.ingestionStatus) ? 'Indexing...' :
+                  'Not Indexed'
+                ) : 'Not Indexed'}
               </span>
             </div>
           </div>

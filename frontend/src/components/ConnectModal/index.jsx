@@ -6,9 +6,10 @@ import './index.css';
 
 const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
   const { user } = useAuth();
-  const [modalState, setModalState] = useState('INPUT'); // 'INPUT' | 'INDEXING' | 'READY'
+  const [modalState, setModalState] = useState('INPUT'); // 'INPUT' | 'QUEUED' | 'INDEXING' | 'READY' | 'FAILED'
   const [repoUrl, setRepoUrl] = useState('');
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(0); // Optional fallback
+  const [detailedProgress, setDetailedProgress] = useState(null);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
@@ -29,36 +30,56 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
 
   useEffect(() => {
     let interval;
+    let failCount = 0;
+    let isMounted = true;
+
     if ((modalState === 'INDEXING' || modalState === 'QUEUED') && repositoryId && !error) {
       const pollStatus = async () => {
         try {
-          const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-          const data = await fetchApi(`${backendUrl}/api/repositories/${repositoryId}/ingestion`, {
+          const data = await fetchApi(`/api/repositories/${repositoryId}/ingestion`, {
             credentials: 'include'
           }, true);
+          
+          if (!isMounted) return;
+          failCount = 0; // Reset on success
+
           if (data.success) {
             const status = data.data.ingestionStatus;
-            if (status === 'COMPLETED' || status === 'INDEXING_COMPLETED' || status === 'EMBEDDING_FAILED') {
+            setDetailedProgress(data.data.detailedProgress || null);
+            
+            if (status === 'COMPLETED') {
               setModalState('READY');
               setRepositoryId(null);
-            } else if (status === 'FAILED') {
+            } else if (status === 'FAILED' || status === 'EMBEDDING_FAILED') {
               setModalState('FAILED');
               setError(data.data.lastIngestionError || 'Repository indexing failed.');
               setRepositoryId(null);
-            } else if (status === 'INGESTING' || status === 'EMBEDDING') {
+            } else if (status === 'INGESTING' || status === 'EMBEDDING' || status === 'INDEXING_COMPLETED') {
               setModalState('INDEXING');
             } else if (status === 'QUEUED' || status === 'NOT_INGESTED') {
               setModalState('QUEUED');
             }
           }
         } catch (err) {
+          if (!isMounted) return;
           console.error('Failed to poll ingestion status:', err);
+          failCount++;
+          if (failCount >= 3) {
+            setModalState('FAILED');
+            setError('Unable to connect to the indexing service.');
+            setRepositoryId(null);
+            clearInterval(interval);
+          }
         }
       };
 
       interval = setInterval(pollStatus, 2000);
     }
-    return () => clearInterval(interval);
+    
+    return () => {
+      isMounted = false;
+      if (interval) clearInterval(interval);
+    };
   }, [modalState, repositoryId, error]);
 
   const handleConnectClick = async () => {
@@ -67,8 +88,7 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
     setError(null);
 
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories`, {
+      const data = await fetchApi(`/api/repositories`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: repoUrl }),
@@ -89,8 +109,10 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
   };
 
   const handleCancel = () => {
+    // If we support cancellation API, we'd call it here. For now just reset local UI.
     setModalState('INPUT');
     setProgress(0);
+    setDetailedProgress(null);
     setError(null);
   };
 
@@ -160,20 +182,82 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
               </div>
 
               {(modalState === 'QUEUED' || modalState === 'INDEXING') && (
-                <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--on-surface)' }}>
-                  {modalState === 'QUEUED' ? 'Repository is queued for indexing...' : 'Analyzing your codebase...'}
+                <div style={{ marginTop: '16px' }}>
+                  <div className="pipeline-step-row" style={{ color: 'var(--primary)', fontWeight: 'bold', marginBottom: '16px' }}>
+                    <div className="pipeline-step-left">
+                      <span className="material-symbols-outlined" style={{ fontSize: '18px', animation: 'spin 2s linear infinite' }}>
+                        sync
+                      </span>
+                      <span>Analyzing codebase</span>
+                    </div>
+                  </div>
+                  
+                  {detailedProgress ? (
+                    <div className="progress-details-container">
+                      <div className="progress-stage" style={{ marginBottom: '12px', fontSize: '13px' }}>
+                        {detailedProgress.stage}
+                      </div>
+                      
+                      {detailedProgress.discovered > 0 && (
+                         <div className="progress-metrics" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                           <div>Files discovered: <strong>{detailedProgress.discovered}</strong></div>
+                           <div>Files processed: <strong>{detailedProgress.processed + detailedProgress.skipped}</strong></div>
+                           <div>Files failed: <strong>{detailedProgress.failed}</strong></div>
+                           <div>Remaining: <strong>{Math.max(0, detailedProgress.discovered - (detailedProgress.processed + detailedProgress.skipped + detailedProgress.failed))}</strong></div>
+                         </div>
+                      )}
+
+                      {detailedProgress.stage === 'Generating embeddings' && detailedProgress.totalChunks > 0 && (
+                         <div className="progress-metrics" style={{ fontSize: '13px', marginBottom: '16px' }}>
+                           <div>Chunks embedded: <strong>{detailedProgress.embeddedChunks} / {detailedProgress.totalChunks}</strong></div>
+                         </div>
+                      )}
+                      
+                      {detailedProgress.discovered > 0 && (
+                        <div className="progress-bar-container" style={{ width: '100%', height: '6px', backgroundColor: 'var(--border)', borderRadius: '3px', overflow: 'hidden', marginBottom: '12px' }}>
+                          <div className="progress-bar-fill" style={{ width: `${Math.min(100, Math.round(((detailedProgress.processed + detailedProgress.skipped + detailedProgress.failed) / detailedProgress.discovered) * 100))}%`, height: '100%', backgroundColor: 'var(--primary)', transition: 'width 0.3s ease' }}></div>
+                        </div>
+                      )}
+                      
+                      {detailedProgress.currentFile && (
+                        <div className="progress-current-file" style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={detailedProgress.currentFile}>
+                          Currently analyzing: {detailedProgress.currentFile}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: 'var(--on-surface)' }}>
+                      {modalState === 'QUEUED' ? 'Preparing repository...' : 'Discovering and processing repository files...'}
+                    </div>
+                  )}
                 </div>
               )}
 
               {modalState === 'FAILED' && (
-                <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--error, red)' }}>
-                  {error || 'Repository indexing failed. Please try again.'}
+                <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(255, 0, 0, 0.05)', borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--error, red)', fontWeight: 'bold', marginBottom: '8px' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>error</span>
+                    <span>Repository analysis failed</span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--on-surface)' }}>
+                    {error || 'Unable to retrieve repository files from GitHub.'}
+                  </div>
                 </div>
               )}
 
               {modalState === 'READY' && (
-                <div style={{ marginTop: '16px', fontSize: '14px', color: 'var(--on-surface)' }}>
-                  Your repository is ready to explore and ask questions.
+                <div style={{ marginTop: '16px' }}>
+                  <p style={{ fontSize: '14px', color: 'var(--on-surface)', marginBottom: '16px' }}>
+                    Your repository has been successfully analyzed and indexed.
+                  </p>
+                  
+                  {detailedProgress && (
+                    <div className="progress-metrics" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', padding: '12px', backgroundColor: 'var(--background-alt)', borderRadius: '6px' }}>
+                      <div>Files indexed: <strong>{detailedProgress.processed}</strong></div>
+                      <div>Code chunks: <strong>{detailedProgress.totalChunks || 0}</strong></div>
+                      <div>Embeddings generated: <strong>{detailedProgress.embeddedChunks || detailedProgress.totalChunks || 0}</strong></div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

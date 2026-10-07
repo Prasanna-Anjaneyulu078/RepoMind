@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { fetchApi } from '../utils/apiClient.js';
+import { fetchApi, API_BASE_URL } from '../utils/apiClient.js';
 
 const AuthContext = createContext();
 
@@ -11,8 +11,7 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/auth/me`, {
+      const data = await fetchApi(`/api/auth/me`, {
         credentials: 'include',
       }, true); // skipPopup for 401 auth checks
       
@@ -35,14 +34,12 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGitHub = (forceConsent = false) => {
     // Redirect to backend OAuth endpoint
-    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    window.location.href = `${backendUrl}/api/auth/github${forceConsent ? '?prompt=consent' : ''}`;
+    window.location.href = `${API_BASE_URL}/api/auth/github${forceConsent ? '?prompt=consent' : ''}`;
   };
 
   const logout = async () => {
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      await fetchApi(`${backendUrl}/api/auth/logout`, {
+      await fetchApi(`/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       }, true);

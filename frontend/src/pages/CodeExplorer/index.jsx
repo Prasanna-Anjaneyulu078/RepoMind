@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchApi } from '../../utils/apiClient.js';
 import { useError } from '../../context/ErrorContext.jsx';
@@ -90,23 +90,30 @@ const CodeExplorer = ({ activeRepo }) => {
     };
   }, [activeRepo, repoStatus]);
 
+  const latestOpenFiles = useRef(openFiles);
+  const latestActiveFilePath = useRef(activeFilePath);
+
+  useEffect(() => {
+    latestOpenFiles.current = openFiles;
+    latestActiveFilePath.current = activeFilePath;
+  }, [openFiles, activeFilePath]);
+
   useEffect(() => {
     if (initialFilePath && tree.length > 0) {
-      if (!openFiles.find(f => f.path === initialFilePath)) {
+      if (!latestOpenFiles.current.find(f => f.path === initialFilePath)) {
         handleSelectFileByPath(initialFilePath);
-      } else if (activeFilePath !== initialFilePath) {
+      } else if (latestActiveFilePath.current !== initialFilePath) {
         setActiveFilePath(initialFilePath);
       }
     }
-  }, [initialFilePath, tree, openFiles, activeFilePath]);
+  }, [initialFilePath, tree]);
 
   const loadTree = async () => {
     if (!activeRepo || !activeRepo.id) return;
     setLoadingTree(true);
     setError(null);
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/files/tree`, {
+      const data = await fetchApi(`/api/repositories/${activeRepo.id}/files/tree`, {
         credentials: 'include'
       }, true); // Handle errors manually to customize popup
 
@@ -133,8 +140,7 @@ const CodeExplorer = ({ activeRepo }) => {
   const loadFileContent = async (path) => {
     if (!activeRepo || !activeRepo.id) return;
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const data = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/files/content?path=${encodeURIComponent(path)}`, {
+      const data = await fetchApi(`/api/repositories/${activeRepo.id}/files/content?path=${encodeURIComponent(path)}`, {
         credentials: 'include'
       }, true); // Custom popup
 
@@ -187,26 +193,18 @@ const CodeExplorer = ({ activeRepo }) => {
   const handleCloseTab = (e, path) => {
     e.stopPropagation();
     
-    let newActivePath = activeFilePath;
-    let shouldUpdatePath = false;
+    const closedIndex = openFiles.findIndex(f => f.path === path);
+    if (closedIndex === -1) return;
 
-    setOpenFiles(prev => {
-      const next = prev.filter(f => f.path !== path);
-      
-      if (activeFilePath === path) {
-        shouldUpdatePath = true;
-        const closedIndex = prev.findIndex(f => f.path === path);
-        if (next.length === 0) {
-          newActivePath = null;
-        } else {
-          const nextIndex = closedIndex > 0 ? closedIndex - 1 : 0;
-          newActivePath = next[nextIndex].path;
-        }
+    const nextFiles = openFiles.filter(f => f.path !== path);
+    setOpenFiles(nextFiles);
+    
+    if (activeFilePath === path) {
+      let newActivePath = null;
+      if (nextFiles.length > 0) {
+        const nextIndex = closedIndex > 0 ? closedIndex - 1 : 0;
+        newActivePath = nextFiles[nextIndex].path;
       }
-      return next;
-    });
-
-    if (shouldUpdatePath) {
       setActiveFilePath(newActivePath);
       setSearchParams(newActivePath ? { file: newActivePath } : {});
     }

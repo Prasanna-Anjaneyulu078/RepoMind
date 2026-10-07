@@ -12,8 +12,7 @@ const Onboarding = ({ activeRepo }) => {
   const fetchOnboarding = useCallback(async () => {
     if (!activeRepo) return;
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const result = await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/onboarding`, {
+      const result = await fetchApi(`/api/repositories/${activeRepo.id}/onboarding`, {
         credentials: 'include'
       });
       if (result.success) {
@@ -48,8 +47,7 @@ const Onboarding = ({ activeRepo }) => {
     if (status === 'GENERATING') return;
     try {
       setStatus('GENERATING');
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      await fetchApi(`${backendUrl}/api/repositories/${activeRepo.id}/onboarding/generate`, {
+      await fetchApi(`/api/repositories/${activeRepo.id}/onboarding/generate`, {
         method: 'POST',
         credentials: 'include'
       });
@@ -92,7 +90,7 @@ const Onboarding = ({ activeRepo }) => {
     );
   }
 
-  if (activeRepo.ingestionStatus === 'NOT_INGESTED' || activeRepo.ingestionStatus === 'INGESTING' || activeRepo.ingestionStatus === 'QUEUED') {
+  if (['NOT_INGESTED', 'QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(activeRepo.ingestionStatus)) {
     return (
       <div className="onboarding-page">
         <div className="empty-state-card center-card" style={{margin: 'auto', textAlign: 'center'}}>
