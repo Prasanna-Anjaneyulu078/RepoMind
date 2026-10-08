@@ -81,7 +81,11 @@ export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://repo-mind-
 export const fetchApi = async (pathOrUrl, options = {}, skipPopup = false, customRetry = null) => {
   try {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${API_BASE_URL}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
-    const response = await fetch(url, options);
+    const defaultOptions = {
+      credentials: 'include',
+      ...options
+    };
+    const response = await fetch(url, defaultOptions);
     
     let data;
     const isJson = response.headers.get('content-type')?.includes('application/json');

@@ -16,8 +16,21 @@ const app = express();
 
 app.use(helmet());
 
+const allowedOrigins = [
+  FRONTEND_URL,
+  'https://repo-mind.pages.dev',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.endsWith('.repo-mind.pages.dev')) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 
