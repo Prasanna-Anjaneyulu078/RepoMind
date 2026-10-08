@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchApi } from '../../utils/apiClient.js';
 import { useError } from '../../context/ErrorContext.jsx';
 import MarkdownViewer from './MarkdownViewer/index.jsx';
+import LoadingState from './LoadingState/index.jsx';
 import './index.css';
 
 const TreeNode = ({ node, level, onSelect, selectedPath, expandedFolders, toggleFolder }) => {
@@ -445,13 +446,14 @@ const CodeExplorer = ({ activeRepo }) => {
         </div>
       </div>
       
+      {loadingTree && tree.length === 0 ? (
+        <LoadingState />
+      ) : (
       <div className="ide-main-panes">
         {/* File Tree */}
         <div className="ide-tree-pane pane-mobile-active">
           <div className="tree-scrollable-area">
-            {loadingTree ? (
-              <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)' }}>Loading repository files...</div>
-            ) : repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus) ? (
+            {repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus) ? (
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {repoStatus === 'NOT_INGESTED' && 'Repository files are not indexed yet.'}
                 {repoStatus === 'QUEUED' && 'Repository indexing is queued.'}
@@ -526,6 +528,7 @@ const CodeExplorer = ({ activeRepo }) => {
           {!error && renderFileContent()}
         </div>
       </div>
+      )}
     </div>
   );
 };
