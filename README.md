@@ -230,7 +230,7 @@ RepoMind/
 | `POST` | `/api/repositories/:id/conversations` | Initializes a new RAG conversation |
 | `POST` | `/api/repositories/:id/architecture/generate` | Triggers architecture generation |
 
-[Complete API Documentation](docs/API.md)
+[Complete API Documentation](#api-documentation)
 
 ## 17. Database
 
@@ -243,7 +243,7 @@ RepoMind/
   - `RepositoryFile`, `FileChunk`, `ChunkEmbedding` (Relational tree for code)
   - `Conversation`, `ConversationMessage` (Chat state)
 
-[Database Documentation](docs/DATABASE.md)
+[Database Documentation](#database-design)
 
 ## 18. Installation
 
@@ -353,7 +353,7 @@ RepoMind v1.0 was validated against 18 critical functional and resilience scenar
 
 **Validation Result: 18/18 PASS**
 
-[Detailed Validation Report](docs/VALIDATION.md)
+[Detailed Validation Report](#validation-results)
 
 ## 22. Performance
 
