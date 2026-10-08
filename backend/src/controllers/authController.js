@@ -17,7 +17,7 @@ const startOAuth = (req, res) => {
 };
 
 const oauthCallback = async (req, res, next) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://repo-mind.pages.dev';
   
   try {
     const { code, state, error } = req.query;
@@ -85,7 +85,7 @@ const oauthCallback = async (req, res, next) => {
     res.redirect(`${frontendUrl}/auth/success`);
   } catch (err) {
     console.error('Unexpected OAuth Error:', err);
-    const frontendUrlFallback = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrlFallback = process.env.FRONTEND_URL || 'https://repo-mind.pages.dev';
     res.redirect(`${frontendUrlFallback}/login?oauth_error=unknown`);
   }
 };

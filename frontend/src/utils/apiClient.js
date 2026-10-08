@@ -76,7 +76,7 @@ export const normalizeApiError = (status, data, method = 'GET') => {
 
   return normalized;
 };
-export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://repo-mind-a954.onrender.com').replace(/\/+$/, '');
 
 export const fetchApi = async (pathOrUrl, options = {}, skipPopup = false, customRetry = null) => {
   try {
