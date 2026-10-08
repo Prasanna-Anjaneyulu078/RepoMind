@@ -446,7 +446,7 @@ const CodeExplorer = ({ activeRepo }) => {
         </div>
       </div>
       
-      {loadingTree && tree.length === 0 ? (
+      {(loadingTree && tree.length === 0) || (repoStatus && ['QUEUED', 'INGESTING'].includes(repoStatus)) ? (
         <LoadingState />
       ) : (
       <div className="ide-main-panes">

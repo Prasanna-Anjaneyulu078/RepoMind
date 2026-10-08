@@ -236,9 +236,31 @@ const embedChunk = async (chunkId, content) => {
  */
 const embedChunks = async (chunks, onProgress) => {
   const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
+  const CONCURRENCY = parseInt(process.env.EMBEDDING_CONCURRENCY || '2', 10);
   
+  const batches = [];
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-    const batch = chunks.slice(i, i + BATCH_SIZE);
+    batches.push(chunks.slice(i, i + BATCH_SIZE));
+  }
+  
+  const asyncPool = async (poolLimit, array, iteratorFn) => {
+    const ret = [];
+    const executing = [];
+    for (const item of array) {
+      const p = Promise.resolve().then(() => iteratorFn(item));
+      ret.push(p);
+      if (poolLimit <= array.length) {
+        const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+        executing.push(e);
+        if (executing.length >= poolLimit) {
+          await Promise.race(executing);
+        }
+      }
+    }
+    return Promise.all(ret);
+  };
+
+  await asyncPool(CONCURRENCY, batches, async (batch) => {
     const texts = batch.map(c => c.content);
     
     // This will throw if rate limit is hit and retries are exhausted.
@@ -268,7 +290,7 @@ const embedChunks = async (chunks, onProgress) => {
     if (onProgress) {
       onProgress(batch.length);
     }
-  }
+  });
 };
 
 module.exports = {

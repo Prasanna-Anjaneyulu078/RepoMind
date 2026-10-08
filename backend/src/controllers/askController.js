@@ -58,7 +58,7 @@ const askInConversation = async (req, res, next) => {
       where: { id: conversation.repositoryId }
     });
 
-    if (repository && (repository.ingestionStatus === 'QUEUED' || repository.ingestionStatus === 'INGESTING' || repository.ingestionStatus === 'INDEXING_COMPLETED' || repository.ingestionStatus === 'EMBEDDING')) {
+    if (repository && (repository.ingestionStatus === 'QUEUED' || repository.ingestionStatus === 'INGESTING' || repository.ingestionStatus === 'INDEXING_COMPLETED')) {
       return res.status(409).json({ success: false, message: 'This repository is still being indexed. Please try again shortly.', code: 'REPOSITORY_NOT_READY' });
     }
 
@@ -86,6 +86,10 @@ const askInConversation = async (req, res, next) => {
       conversation.componentContext
     );
     console.log(`[AskRepo] conversationId=${conversationId} stage=GEMINI_COMPLETED`);
+
+    if (repository && repository.ingestionStatus === 'EMBEDDING') {
+      result.answer = "AI indexing is still in progress. Some repository context may not be available yet.\n\n" + result.answer;
+    }
 
     // 5. Persist Assistant Answer
     const assistantMessage = await conversationService.addMessage(

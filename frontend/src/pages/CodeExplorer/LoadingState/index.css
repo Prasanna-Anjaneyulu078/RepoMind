@@ -98,15 +98,26 @@
   animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes skeleton-pulse {
+.skeleton-tree-item,
+.skeleton-tab,
+.skeleton-tab-meta,
+.skeleton-code-line {
+  background: linear-gradient(
+    90deg,
+    var(--surface-container-high) 25%,
+    var(--surface-container-highest) 50%,
+    var(--surface-container-high) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite linear;
+}
+
+@keyframes skeleton-shimmer {
   0% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
+    background-position: 200% 0;
   }
   100% {
-    opacity: 0.4;
+    background-position: -200% 0;
   }
 }
 
@@ -116,6 +127,6 @@
   .skeleton-tab-meta,
   .skeleton-code-line {
     animation: none;
-    opacity: 0.6;
+    background: var(--surface-container-high);
   }
 }
