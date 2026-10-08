@@ -53,12 +53,12 @@ const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
         return response.embeddings[0].values;
       } catch (error) {
         const errorMessage = error.message || '';
-        const isQuotaExhausted = error.status === 429 && (errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED'));
-        const isTransientRateLimit = error.status === 429 && !isQuotaExhausted;
+        const isDailyQuotaExhausted = error.status === 429 && (errorMessage.toLowerCase().includes('per day') || errorMessage.toLowerCase().includes('daily'));
+        const isTransientRateLimit = error.status === 429 && !isDailyQuotaExhausted;
         const isTransient503 = error.status === 503;
         
-        if (isQuotaExhausted) {
-          const quotaError = new Error(`Quota exhausted: ${errorMessage}`);
+        if (isDailyQuotaExhausted) {
+          const quotaError = new Error(`Daily quota exhausted: ${errorMessage}`);
           quotaError.isQuotaExhausted = true;
           throw quotaError;
         }
@@ -100,12 +100,12 @@ const generateBatchEmbeddings = async (texts, retries = 5, initialDelay = 3000) 
         return response.embeddings.map(e => e.values);
       } catch (error) {
         const errorMessage = error.message || '';
-        const isQuotaExhausted = error.status === 429 && (errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED'));
-        const isTransientRateLimit = error.status === 429 && !isQuotaExhausted;
+        const isDailyQuotaExhausted = error.status === 429 && (errorMessage.toLowerCase().includes('per day') || errorMessage.toLowerCase().includes('daily'));
+        const isTransientRateLimit = error.status === 429 && !isDailyQuotaExhausted;
         const isTransient503 = error.status === 503;
         
-        if (isQuotaExhausted) {
-          const quotaError = new Error(`Quota exhausted: ${errorMessage}`);
+        if (isDailyQuotaExhausted) {
+          const quotaError = new Error(`Daily quota exhausted: ${errorMessage}`);
           quotaError.isQuotaExhausted = true;
           throw quotaError;
         }
@@ -129,7 +129,7 @@ let embeddingQueue = [];
 let embeddingTimer = null;
 
 const processQueueBatch = async () => {
-  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '100', 10);
   
   const batch = embeddingQueue.splice(0, BATCH_SIZE);
   if (batch.length === 0) return;
@@ -150,7 +150,7 @@ const processQueueBatch = async () => {
 };
 
 const checkQueue = () => {
-  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '100', 10);
   
   if (embeddingQueue.length >= BATCH_SIZE) {
     if (embeddingTimer) {
@@ -235,8 +235,8 @@ const embedChunk = async (chunkId, content) => {
  * Embed an array of chunks in batches and persist to pgvector
  */
 const embedChunks = async (chunks, onProgress) => {
-  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
-  const CONCURRENCY = parseInt(process.env.EMBEDDING_CONCURRENCY || '2', 10);
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '100', 10);
+  const CONCURRENCY = parseInt(process.env.EMBEDDING_CONCURRENCY || '1', 10);
   
   const batches = [];
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {

@@ -11,6 +11,8 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
   const [progress, setProgress] = useState(0); // Optional fallback
   const [detailedProgress, setDetailedProgress] = useState(null);
   const [error, setError] = useState(null);
+  const [githubRepos, setGithubRepos] = useState([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -23,6 +25,21 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
       }
       setProgress(0);
       setError(null);
+      
+      const fetchRepos = async () => {
+        setLoadingRepos(true);
+        try {
+          const data = await fetchApi('/api/repositories/github', { credentials: 'include' }, true);
+          if (data.success) {
+            setGithubRepos(data.data || []);
+          }
+        } catch (err) {
+          console.error('Failed to fetch github repos', err);
+        } finally {
+          setLoadingRepos(false);
+        }
+      };
+      fetchRepos();
     }
   }, [isOpen, user]);
 
@@ -50,7 +67,7 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
             if (status === 'COMPLETED') {
               setModalState('READY');
               setRepositoryId(null);
-            } else if (status === 'FAILED' || status === 'EMBEDDING_FAILED') {
+            } else if (status === 'FAILED' || status === 'EMBEDDING_FAILED' || status === 'EMBEDDING_QUOTA_EXHAUSTED') {
               setModalState('FAILED');
               setError(data.data.lastIngestionError || 'Repository indexing failed.');
               setRepositoryId(null);
@@ -154,8 +171,27 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
           {modalState === 'INPUT' && (
             <div className="form-group">
               <label className="form-label">
-                <span>GitHub Repository URL</span>
+                <span>Select from GitHub or Enter URL</span>
               </label>
+              
+              <div className="github-repos-dropdown" style={{ marginBottom: '12px' }}>
+                <select 
+                  className="url-input" 
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--outline)', backgroundColor: 'var(--surface-container)' }}
+                  onChange={(e) => {
+                    if (e.target.value) setRepoUrl(e.target.value);
+                  }}
+                  value={githubRepos.find(r => r.htmlUrl === repoUrl) ? repoUrl : ''}
+                >
+                  <option value="">{loadingRepos ? 'Loading your repositories...' : '-- Select a repository --'}</option>
+                  {githubRepos.map(repo => (
+                    <option key={repo.githubRepositoryId} value={repo.htmlUrl}>
+                      {repo.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="input-with-button">
                 <span className="material-symbols-outlined input-icon">code</span>
                 <input
