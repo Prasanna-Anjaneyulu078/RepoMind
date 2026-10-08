@@ -398,6 +398,9 @@ const ingestRepository = async (token, repositoryId, userId) => {
               });
             }
           }
+        }, {
+          maxWait: 10000, // 10 seconds max wait to acquire a connection
+          timeout: 30000  // 30 seconds max execution time
         });
 
         for (const item of batchResults) {
