@@ -124,6 +124,8 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDe
               <span className="material-symbols-outlined search-icon-inside">search</span>
               <input
                 type="text"
+                id="repos-search"
+                name="reposSearch"
                 className="repos-search-field"
                 placeholder="Search repositories, branches, or tech stack..."
                 value={searchTerm}

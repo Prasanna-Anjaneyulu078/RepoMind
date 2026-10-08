@@ -160,6 +160,8 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
                 <span className="material-symbols-outlined input-icon">code</span>
                 <input
                   type="text"
+                  id="github-repo-url"
+                  name="githubRepoUrl"
                   className="url-input"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
