@@ -34,7 +34,9 @@ const conversationService = require('../services/conversationService');
 const askInConversation = async (req, res, next) => {
   try {
     const { conversationId } = req.params;
+    console.log(`[AskRepo] conversationId=${conversationId} stage=REQUEST_RECEIVED`);
     const { question, topK } = req.body;
+
 
     if (!question || question.trim() === '') {
       return res.status(400).json({ success: false, message: 'Question is required' });
@@ -50,6 +52,7 @@ const askInConversation = async (req, res, next) => {
     if (!conversation) {
       return res.status(404).json({ success: false, message: 'Conversation not found' });
     }
+    console.log(`[AskRepo] conversationId=${conversationId} stage=CONVERSATION_VALIDATED`);
 
     const repository = await require('../config/database').repository.findUnique({
       where: { id: conversation.repositoryId }
@@ -62,6 +65,7 @@ const askInConversation = async (req, res, next) => {
     // 2. Fetch recent conversation context (last 10 messages)
     const history = conversation.messages.slice(-10);
 
+
     // 3. Persist User Question (Prevent duplicate if retrying)
     const lastMessage = history.length > 0 ? history[history.length - 1] : null;
     let userMessageSaved = false;
@@ -69,7 +73,9 @@ const askInConversation = async (req, res, next) => {
       await conversationService.addMessage(conversationId, 'USER', question);
       userMessageSaved = true;
     }
+    console.log(`[AskRepo] conversationId=${conversationId} stage=USER_MESSAGE_SAVED`);
 
+    console.log(`[AskRepo] conversationId=${conversationId} stage=EMBEDDING_STARTED`);
     // 4. Generate RAG Answer
     const result = await ragService.askQuestion(
       req.user.id, 
@@ -79,6 +85,7 @@ const askInConversation = async (req, res, next) => {
       history,
       conversation.componentContext
     );
+    console.log(`[AskRepo] conversationId=${conversationId} stage=GEMINI_COMPLETED`);
 
     // 5. Persist Assistant Answer
     const assistantMessage = await conversationService.addMessage(
@@ -87,6 +94,7 @@ const askInConversation = async (req, res, next) => {
       result.answer, 
       result.sources
     );
+    console.log(`[AskRepo] conversationId=${conversationId} stage=ASSISTANT_MESSAGE_SAVED`);
 
     // 6. Return response conforming to existing schema
     const updatedConversation = await conversationService.getConversation(req.user.id, conversationId);
@@ -100,6 +108,7 @@ const askInConversation = async (req, res, next) => {
       message: assistantMessage,
       sources: result.sources
     });
+    console.log(`[AskRepo] conversationId=${conversationId} stage=RESPONSE_SENT`);
 
   } catch (err) {
     if (err.message === 'Repository not found or unauthorized') {
@@ -109,7 +118,17 @@ const askInConversation = async (req, res, next) => {
       return res.status(404).json({ success: false, message: err.message });
     }
 
-    // Gemini API error handling
+    // Embedding and Gemini API error handling
+    if (err.isQuotaExhausted || (err.message && err.message.includes('Quota exhausted'))) {
+      console.error(`[AskRepo] message request failed\nconversationId: ${req.params.conversationId}\nuserId: ${req.user.id}\nstage: EMBEDDING_FAILED\nerror: ${err.message}`);
+      return res.status(429).json({ success: false, message: "AI search is temporarily rate-limited (Quota Exhausted). Please try again shortly." });
+    }
+
+    if (err.message === 'Failed to generate query embedding' || (err.message && err.message.includes('No embeddings returned by Gemini API'))) {
+      console.error(`[AskRepo] message request failed\nconversationId: ${req.params.conversationId}\nuserId: ${req.user.id}\nstage: EMBEDDING_FAILED\nerror: ${err.message}`);
+      return res.status(503).json({ success: false, message: "AI search is temporarily unavailable because the repository's semantic index is not ready. Please try again later." });
+    }
+
     if (err.status || err.name === 'ApiError') {
       console.error(`[AskRepo] message request failed\nconversationId: ${req.params.conversationId}\nuserId: ${req.user.id}\nstage: GEMINI_API\nerror: ${err.message}`);
       
