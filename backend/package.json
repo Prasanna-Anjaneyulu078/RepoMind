@@ -23,6 +23,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.3.0",
     "nodemon": "^3.1.14",
+    "p-limit": "^7.3.3",
     "pgvector": "^0.2.1"
   },
   "devDependencies": {

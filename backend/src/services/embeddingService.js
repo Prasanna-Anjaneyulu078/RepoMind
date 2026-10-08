@@ -7,32 +7,73 @@ const EMBEDDING_DIMENSION = 768; // Based on schema vector(768)
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Global concurrency limiter for embedding calls to prevent retry storms
+const createSemaphore = (max) => {
+  let counter = 0;
+  let waiting = [];
+  return {
+    acquire: () => new Promise(resolve => {
+      if (counter < max) {
+        counter++;
+        resolve();
+      } else {
+        waiting.push(resolve);
+      }
+    }),
+    release: () => {
+      if (waiting.length > 0) {
+        const next = waiting.shift();
+        next();
+      } else {
+        counter--;
+      }
+    }
+  };
+};
+
+// Limit to 2 concurrent Gemini batch requests globally across all ingestion workers
+const embeddingSemaphore = createSemaphore(2);
+
 /**
  * Generate embedding for a single text chunk with exponential backoff
  */
 const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await ai.models.embedContent({
-        model: EMBEDDING_MODEL,
-        contents: text,
-        config: { outputDimensionality: EMBEDDING_DIMENSION }
-      });
-      if (!response.embeddings || response.embeddings.length === 0) {
-        throw new Error('No embeddings returned by Gemini API');
-      }
-      return response.embeddings[0].values;
-    } catch (error) {
-      const isRateLimit = error.status === 429 || (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('RESOURCE_EXHAUSTED')));
-      
-      if (isRateLimit && i < retries - 1) {
-        const waitTime = initialDelay * Math.pow(2, i) + Math.random() * 1000; // jitter
-        console.warn(`[EmbeddingService] API rate limit (429). Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
-        await delay(waitTime);
-      } else {
-        throw error;
+  await embeddingSemaphore.acquire();
+  try {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await ai.models.embedContent({
+          model: EMBEDDING_MODEL,
+          contents: text,
+          config: { outputDimensionality: EMBEDDING_DIMENSION }
+        });
+        if (!response.embeddings || response.embeddings.length === 0) {
+          throw new Error('No embeddings returned by Gemini API');
+        }
+        return response.embeddings[0].values;
+      } catch (error) {
+        const errorMessage = error.message || '';
+        const isQuotaExhausted = error.status === 429 && (errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED'));
+        const isTransientRateLimit = error.status === 429 && !isQuotaExhausted;
+        const isTransient503 = error.status === 503;
+        
+        if (isQuotaExhausted) {
+          const quotaError = new Error(`Quota exhausted: ${errorMessage}`);
+          quotaError.isQuotaExhausted = true;
+          throw quotaError;
+        }
+
+        if ((isTransientRateLimit || isTransient503) && i < retries - 1) {
+          const waitTime = initialDelay * Math.pow(2, i) + Math.random() * 1000; // jitter
+          console.warn(`[EmbeddingService] Transient API error (${error.status}). Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
+          await delay(waitTime);
+        } else {
+          throw error;
+        }
       }
     }
+  } finally {
+    embeddingSemaphore.release();
   }
 };
 
@@ -42,32 +83,128 @@ const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
 const generateBatchEmbeddings = async (texts, retries = 5, initialDelay = 3000) => {
   if (!texts || texts.length === 0) return [];
   
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await ai.models.embedContent({
-        model: EMBEDDING_MODEL,
-        contents: texts, // Natively accepts array of strings for batching
-        config: { outputDimensionality: EMBEDDING_DIMENSION }
-      });
-      
-      if (!response.embeddings || response.embeddings.length === 0) {
-        throw new Error('No embeddings returned by Gemini API');
-      }
-      
-      return response.embeddings.map(e => e.values);
-    } catch (error) {
-      const isRateLimit = error.status === 429 || (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('RESOURCE_EXHAUSTED')));
-      
-      if (isRateLimit && i < retries - 1) {
-        const retryAfter = error.response?.headers?.['retry-after'];
-        let waitTime = retryAfter ? parseInt(retryAfter) * 1000 : (initialDelay * Math.pow(2, i) + Math.random() * 1000);
-        console.warn(`[EmbeddingService] API rate limit (429) for batch of ${texts.length}. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
-        await delay(waitTime);
-      } else {
-        throw error;
+  await embeddingSemaphore.acquire();
+  try {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await ai.models.embedContent({
+          model: EMBEDDING_MODEL,
+          contents: texts, // Natively accepts array of strings for batching
+          config: { outputDimensionality: EMBEDDING_DIMENSION }
+        });
+        
+        if (!response.embeddings || response.embeddings.length === 0) {
+          throw new Error('No embeddings returned by Gemini API');
+        }
+        
+        return response.embeddings.map(e => e.values);
+      } catch (error) {
+        const errorMessage = error.message || '';
+        const isQuotaExhausted = error.status === 429 && (errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED'));
+        const isTransientRateLimit = error.status === 429 && !isQuotaExhausted;
+        const isTransient503 = error.status === 503;
+        
+        if (isQuotaExhausted) {
+          const quotaError = new Error(`Quota exhausted: ${errorMessage}`);
+          quotaError.isQuotaExhausted = true;
+          throw quotaError;
+        }
+
+        if ((isTransientRateLimit || isTransient503) && i < retries - 1) {
+          const retryAfter = error.response?.headers?.['retry-after'];
+          let waitTime = retryAfter ? parseInt(retryAfter) * 1000 : (initialDelay * Math.pow(2, i) + Math.random() * 1000);
+          console.warn(`[EmbeddingService] Transient API error (${error.status}) for batch of ${texts.length}. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
+          await delay(waitTime);
+        } else {
+          throw error;
+        }
       }
     }
+  } finally {
+    embeddingSemaphore.release();
   }
+};
+
+let embeddingQueue = [];
+let embeddingTimer = null;
+
+const processQueueBatch = async () => {
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
+  
+  const batch = embeddingQueue.splice(0, BATCH_SIZE);
+  if (batch.length === 0) return;
+  
+  if (embeddingQueue.length > 0) {
+    checkQueue(); // Schedule the next batch if there are still items
+  }
+
+  const texts = batch.map(item => item.text);
+  
+  try {
+    const vectors = await generateBatchEmbeddings(texts);
+    batch.forEach((item, idx) => item.onSuccess(vectors[idx]));
+  } catch (error) {
+    console.error(`Failed to generate embeddings for batch: ${error.message}`);
+    batch.forEach(item => item.onError(error));
+  }
+};
+
+const checkQueue = () => {
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
+  
+  if (embeddingQueue.length >= BATCH_SIZE) {
+    if (embeddingTimer) {
+      clearTimeout(embeddingTimer);
+      embeddingTimer = null;
+    }
+    processQueueBatch();
+  } else if (embeddingQueue.length > 0 && !embeddingTimer) {
+    embeddingTimer = setTimeout(() => {
+      embeddingTimer = null;
+      processQueueBatch();
+    }, 100); // 100ms debounce
+  }
+};
+
+/**
+ * Generate embeddings for an array of chunk contents, batching internally across files.
+ * Does NOT write to the database. Returns an array of vectors.
+ */
+const generateEmbeddingsForChunks = (chunks) => {
+  if (!chunks || chunks.length === 0) return Promise.resolve([]);
+
+  return new Promise((resolve, reject) => {
+    const job = {
+      chunks,
+      vectors: new Array(chunks.length),
+      completed: 0,
+      failed: false,
+      resolve,
+      reject
+    };
+
+    chunks.forEach((chunk, index) => {
+      embeddingQueue.push({
+        text: chunk.content,
+        onSuccess: (vector) => {
+          if (job.failed) return;
+          job.vectors[index] = vector;
+          job.completed++;
+          if (job.completed === job.chunks.length) {
+            job.resolve(job.vectors);
+          }
+        },
+        onError: (err) => {
+          if (!job.failed) {
+            job.failed = true;
+            job.reject(new Error(`Embedding generation failed: ${err.message}`));
+          }
+        }
+      });
+    });
+
+    checkQueue();
+  });
 };
 
 /**
@@ -79,7 +216,6 @@ const embedChunk = async (chunkId, content) => {
     throw new Error(`Invalid embedding vector dimension. Expected ${EMBEDDING_DIMENSION}`);
   }
 
-  // Use raw SQL to insert the vector since Prisma doesn't natively map Unsupported("vector") in standard create()
   await prisma.$executeRaw`
     INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
     VALUES (
@@ -96,58 +232,49 @@ const embedChunk = async (chunkId, content) => {
 };
 
 /**
- * Persist multiple chunks using true API batching
+ * Embed an array of chunks in batches and persist to pgvector
  */
-const embedChunks = async (chunks, onProgress = null) => {
-  // Use a sensible configurable batch size (up to 100 is typically safe for Gemini depending on token limits)
+const embedChunks = async (chunks, onProgress) => {
   const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '20', 10);
-  let successCount = 0;
   
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     const batch = chunks.slice(i, i + BATCH_SIZE);
+    const texts = batch.map(c => c.content);
     
-    try {
-      const vectors = await generateBatchEmbeddings(batch.map(c => c.content));
-      
-      const validEmbeddings = vectors.map((v, idx) => ({ chunk: batch[idx], vector: v }))
-                                     .filter(e => e && e.vector && e.vector.length === EMBEDDING_DIMENSION);
-
-      if (validEmbeddings.length > 0) {
-        // Batch DB writes inside a transaction for efficiency
-        await prisma.$transaction(
-          validEmbeddings.map(e => 
-            prisma.$executeRaw`
-              INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
-              VALUES (
-                gen_random_uuid(),
-                ${e.chunk.id},
-                ${EMBEDDING_MODEL},
-                ${EMBEDDING_DIMENSION},
-                ${e.vector}::vector,
-                NOW()
-              )
-              ON CONFLICT ("fileChunkId", model)
-              DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
-            `
+    // This will throw if rate limit is hit and retries are exhausted.
+    // That's acceptable; the caller will catch it, stop processing, 
+    // and the system can resume later since we process in batches.
+    const vectors = await generateBatchEmbeddings(texts);
+    
+    await prisma.$transaction(
+      batch.map((chunk, idx) => {
+        const vector = vectors[idx];
+        return prisma.$executeRaw`
+          INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
+          VALUES (
+            gen_random_uuid(),
+            ${chunk.id},
+            ${EMBEDDING_MODEL},
+            ${EMBEDDING_DIMENSION},
+            ${vector}::vector,
+            NOW()
           )
-        );
-        successCount += validEmbeddings.length;
-        if (onProgress) onProgress(validEmbeddings.length);
-      }
-    } catch (e) {
-      console.error(`Failed to embed batch of chunks: ${e.message}`);
-    }
-
-    if (i + BATCH_SIZE < chunks.length) {
-      await delay(500); // Gentle throttling between consecutive batch requests
+          ON CONFLICT ("fileChunkId", model)
+          DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
+        `;
+      })
+    );
+    
+    if (onProgress) {
+      onProgress(batch.length);
     }
   }
-  return successCount;
 };
 
 module.exports = {
   generateEmbedding,
   generateBatchEmbeddings,
+  generateEmbeddingsForChunks,
   embedChunk,
   embedChunks,
   EMBEDDING_MODEL,

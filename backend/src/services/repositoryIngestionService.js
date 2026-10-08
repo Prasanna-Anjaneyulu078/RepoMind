@@ -153,19 +153,26 @@ const embedRepositoryChunks = async (repositoryId) => {
     }
 
     if (chunksWithoutEmbeddings.length > 0) {
-      // Overwrite the global embedding callback to track chunks progress if needed, 
-      // but simpler to just let it batch and we can track batch completions. 
-      // For now, we will just await it. To be accurate, we could pass a progress callback.
       await embeddingService.embedChunks(chunksWithoutEmbeddings, (embedded) => {
          if (progress) progress.embeddedChunks += embedded;
       });
     }
     
     if (progress) progress.stage = 'Repository ready';
-    await updateIngestionStatus(repositoryId, 'COMPLETED');
+    
+    // Only update to COMPLETED if not already updated by another process
+    const repoCheck = await prisma.repository.findUnique({ where: { id: repositoryId } });
+    if (repoCheck && repoCheck.ingestionStatus === 'EMBEDDING') {
+      await updateIngestionStatus(repositoryId, 'COMPLETED');
+    }
   } catch (err) {
-    console.error('Repository embedding failed:', err);
-    await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
+    if (err.isQuotaExhausted) {
+      console.warn('Embedding quota exhausted, deferring remaining chunks:', err.message);
+      await updateIngestionStatus(repositoryId, 'EMBEDDING_QUOTA_EXHAUSTED', err);
+    } else {
+      console.error('Repository embedding failed:', err);
+      await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
+    }
     // Do not throw the error upwards, allow the ingestion pipeline to finish gracefully
   } finally {
     setTimeout(() => progressStore.delete(repositoryId), 5 * 60 * 1000); // Clear after 5 mins
@@ -183,9 +190,10 @@ const ingestRepository = async (token, repositoryId, userId) => {
     throw new Error('Repository is currently processing');
   }
 
-  // Idempotent resume for embedding if indexing already finished
-  if (repo.ingestionStatus === 'INDEXING_COMPLETED' || repo.ingestionStatus === 'EMBEDDING_FAILED') {
-    return await embedRepositoryChunks(repositoryId);
+  // Idempotent resume for embedding: just run the full idempotent pipeline
+  if (repo.ingestionStatus === 'INDEXING_COMPLETED' || repo.ingestionStatus === 'EMBEDDING_FAILED' || repo.ingestionStatus === 'EMBEDDING_QUOTA_EXHAUSTED') {
+    // Reset status to allow the idempotent ingestion to proceed
+    await updateIngestionStatus(repositoryId, 'QUEUED');
   }
 
   await updateIngestionStatus(repositoryId, 'INGESTING');
@@ -255,6 +263,8 @@ const ingestRepository = async (token, repositoryId, userId) => {
       error: null
     }));
 
+    const crypto = require('crypto');
+
     await asyncPool(10, manifest, async (file) => {
       const existing = existingMap.get(file.path);
 
@@ -283,11 +293,18 @@ const ingestRepository = async (token, repositoryId, userId) => {
         const ext = lastDotIndex !== -1 && lastDotIndex > file.path.lastIndexOf('/') ? file.path.substring(lastDotIndex) : '';
         const filename = file.path.split('/').pop();
         const language = fileFilterService.getFileLanguage(ext, filename);
-        const chunks = chunkingService.chunkContent(normalizedContent);
+        
+        // 1. Generate chunks and assign explicit UUIDs so we can link embeddings
+        const chunks = chunkingService.chunkContent(normalizedContent).map(c => ({
+          ...c,
+          id: crypto.randomUUID()
+        }));
 
+        // 2. Perform a short interactive transaction for database operations ONLY
         await prisma.$transaction(async (tx) => {
           let repFileId;
 
+          // Delete old records and update/create the repository file atomically
           if (existing) {
             await tx.repositoryFile.update({
               where: { id: existing.id },
@@ -319,18 +336,26 @@ const ingestRepository = async (token, repositoryId, userId) => {
             repFileId = newFile.id;
           }
 
+          // Insert new chunks
           if (chunks.length > 0) {
             await tx.fileChunk.createMany({
               data: chunks.map(c => ({
+                id: c.id,
                 repositoryFileId: repFileId,
-                ...c
+                chunkIndex: c.chunkIndex,
+                content: c.content,
+                startLine: c.startLine,
+                endLine: c.endLine
               }))
             });
           }
         });
 
         file.status = 'PROCESSED';
-        if (progress) progress.processed++;
+        if (progress) {
+          progress.processed++;
+          progress.totalChunks += chunks.length;
+        }
       } catch (fileErr) {
         file.status = 'FAILED';
         file.error = fileErr.message;
@@ -356,11 +381,14 @@ const ingestRepository = async (token, repositoryId, userId) => {
         throw new Error('All files failed to ingest. Check GitHub access or rate limits.');
     }
 
-    // Mark indexing completed successfully BEFORE trying to embed
+    // Finished indexing files. Trigger embedding in the background.
+    if (progress) progress.stage = 'Files indexed, waiting for embeddings...';
     await updateIngestionStatus(repositoryId, 'INDEXING_COMPLETED', null, processedCount + skippedCount, latestCommitSha);
-
-    // Proceed to embedding phase independently
-    await embedRepositoryChunks(repositoryId);
+    
+    // Background embedding task
+    embedRepositoryChunks(repositoryId).catch(err => {
+      console.error('Background embedding failed immediately:', err);
+    });
 
   } catch (err) {
     console.error('Ingestion failed:', err);
@@ -376,6 +404,7 @@ const ingestRepository = async (token, repositoryId, userId) => {
 module.exports = {
   getLatestCommitSha,
   ingestRepository,
+  embedRepositoryChunks,
   updateIngestionStatus,
   getProgress
 };
