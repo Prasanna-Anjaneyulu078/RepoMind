@@ -37,8 +37,13 @@ const Architecture = ({ activeRepo }) => {
       }
     } catch (err) {
       console.error(err);
-      setStatus('FAILED');
-      setError('Failed to fetch architecture analysis');
+      if (err.status === 404) {
+        setStatus('FAILED');
+        setError('Repository not found. It may have been deleted or reset from the database. Please refresh the page.');
+      } else {
+        setStatus('FAILED');
+        setError('Failed to fetch architecture analysis');
+      }
     }
   }, [activeRepo]);
 
@@ -59,8 +64,13 @@ const Architecture = ({ activeRepo }) => {
       setTimeout(fetchArchitecture, 3000);
     } catch (err) {
       console.error(err);
-      setStatus('FAILED');
-      setError('Failed to start architecture generation');
+      if (err.status === 404) {
+        setStatus('FAILED');
+        setError('Repository not found. It may have been deleted or reset from the database. Please refresh the page.');
+      } else {
+        setStatus('FAILED');
+        setError('Failed to start architecture generation');
+      }
     }
   };
 
