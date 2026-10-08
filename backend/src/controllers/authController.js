@@ -6,7 +6,12 @@ const sessionService = require('../services/sessionService');
 const startOAuth = (req, res) => {
   const forceConsent = req.query.prompt === 'consent';
   const state = crypto.randomBytes(16).toString('hex');
-  res.cookie('oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' }); // 10 min
+  res.cookie('oauth_state', state, { 
+    httpOnly: true, 
+    maxAge: 10 * 60 * 1000, 
+    secure: process.env.NODE_ENV === 'production', 
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' 
+  }); // 10 min
   const url = githubService.getAuthorizationUrl(state, forceConsent);
   res.redirect(url);
 };
@@ -74,7 +79,7 @@ const oauthCallback = async (req, res, next) => {
       httpOnly: true, 
       expires: expiresAt,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
 
     res.redirect(`${frontendUrl}/auth/success`);
@@ -110,7 +115,7 @@ const logout = async (req, res, next) => {
     res.clearCookie('sessionId', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
     res.json({ success: true, message: 'Successfully logged out' });
   } catch(err) {
