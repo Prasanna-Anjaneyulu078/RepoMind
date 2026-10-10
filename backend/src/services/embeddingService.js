@@ -206,6 +206,9 @@ const embedChunks = async (chunks, onProgress) => {
     await prisma.$transaction(
       batch.map((chunk, idx) => {
         const vector = vectors[idx];
+        if (!vector) {
+          throw new Error(`Missing embedding vector for chunk ${chunk.id}`);
+        }
         return prisma.$executeRaw`
           INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
           VALUES (

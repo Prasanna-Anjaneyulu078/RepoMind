@@ -105,15 +105,23 @@ class GeminiService {
   async embedContent(texts, outputDimensionality) {
     const models = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels];
     const { result, model } = await this.executeWithFallback(models, 'embedContent', async (mdl) => {
-      const response = await this.ai.models.embedContent({
-        model: mdl,
-        contents: texts,
-        config: { outputDimensionality }
+      const isArray = Array.isArray(texts);
+      const items = isArray ? texts : [texts];
+      
+      const promises = items.map(async text => {
+        const response = await this.ai.models.embedContent({
+          model: mdl,
+          contents: text,
+          config: { outputDimensionality }
+        });
+        if (!response.embeddings || response.embeddings.length === 0) {
+          throw new Error('No embeddings returned by Gemini API');
+        }
+        return response.embeddings[0];
       });
-      if (!response.embeddings || response.embeddings.length === 0) {
-        throw new Error('No embeddings returned by Gemini API');
-      }
-      return response.embeddings;
+
+      const results = await Promise.all(promises);
+      return isArray ? results : results;
     });
     return { embeddings: result, model };
   }
