@@ -82,7 +82,12 @@ const getRepositoryTree = async (token, owner, repo, branch) => {
     }
     return response.data.tree;
   } catch (err) {
-    if (err.response && (err.response.status === 401 || err.response.status === 403 || err.response.status === 404)) {
+    if (err.response && err.response.status === 403 && err.response.headers['x-ratelimit-remaining'] === '0') {
+      throw new Error('GitHub API rate limit exhausted during tree fetch. Please wait before trying again.');
+    }
+    
+    // Only retry for 401 or 404 (could be propagation delay or token issue)
+    if (err.response && (err.response.status === 401 || err.response.status === 404)) {
       try {
         const retryResponse = await axios.get(url, { headers });
         if (retryResponse.data.truncated) {
@@ -91,7 +96,7 @@ const getRepositoryTree = async (token, owner, repo, branch) => {
         }
         return retryResponse.data.tree;
       } catch (retryErr) {
-        throw new Error(`GitHub API error during tree fetch: ${retryErr.message}`);
+        throw new Error(`GitHub API error during tree fetch retry: ${retryErr.message}`);
       }
     }
     throw new Error(`Failed to fetch repository tree: ${err.message}`);
@@ -127,14 +132,12 @@ const fetchFileContent = async (token, owner, repo, branch, path, retries = 3) =
         const response = await axios.get(url, config);
         return response.data;
       } catch (err) {
-        if (err.response && [401, 403, 404].includes(err.response.status)) {
-          // If it's a 403 rate limit, we might want to retry, but GitHub uses 403 for rate limits.
-          if (err.response.status === 403 && err.response.headers['x-ratelimit-remaining'] !== '0') {
-            throw err; // It's a real 403, not a rate limit
+        if (err.response && [401, 403, 404, 429].includes(err.response.status)) {
+          // If rate limited (403 with 0 remaining or 429), abort immediately
+          if (err.response.status === 403 && err.response.headers['x-ratelimit-remaining'] === '0') {
+            err.response.status = 429; // Treat as Too Many Requests to properly abort
           }
-          if (err.response.status === 401 || err.response.status === 404) {
-            throw err;
-          }
+          throw err;
         }
         
         attempt++;
@@ -275,8 +278,9 @@ const ingestRepository = async (token, repositoryId, userId) => {
       for (const item of array) {
         const p = Promise.resolve().then(() => iteratorFn(item));
         ret.push(p);
+        
         if (poolLimit <= array.length) {
-          const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+          const e = p.then(() => { executing.splice(executing.indexOf(e), 1); }).catch(() => { executing.splice(executing.indexOf(e), 1); });
           executing.push(e);
           if (executing.length >= poolLimit) {
             await Promise.race(executing);
