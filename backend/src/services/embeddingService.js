@@ -1,8 +1,6 @@
-const { GoogleGenAI } = require('@google/genai');
+const geminiService = require('./geminiService');
 const prisma = require('../config/database');
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'gemini-embedding-001';
 const EMBEDDING_DIMENSION = 768; // Based on schema vector(768)
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -35,91 +33,28 @@ const createSemaphore = (max) => {
 const embeddingSemaphore = createSemaphore(2);
 
 /**
- * Generate embedding for a single text chunk with exponential backoff
+ * Generate embedding for a single text chunk
  */
-const generateEmbedding = async (text, retries = 5, initialDelay = 3000) => {
+const generateEmbedding = async (text) => {
   await embeddingSemaphore.acquire();
   try {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await ai.models.embedContent({
-          model: EMBEDDING_MODEL,
-          contents: text,
-          config: { outputDimensionality: EMBEDDING_DIMENSION }
-        });
-        if (!response.embeddings || response.embeddings.length === 0) {
-          throw new Error('No embeddings returned by Gemini API');
-        }
-        return response.embeddings[0].values;
-      } catch (error) {
-        const errorMessage = error.message || '';
-        const isDailyQuotaExhausted = error.status === 429 && (errorMessage.toLowerCase().includes('per day') || errorMessage.toLowerCase().includes('daily'));
-        const isTransientRateLimit = error.status === 429 && !isDailyQuotaExhausted;
-        const isTransient503 = error.status === 503;
-        
-        if (isDailyQuotaExhausted) {
-          const quotaError = new Error(`Daily quota exhausted: ${errorMessage}`);
-          quotaError.isQuotaExhausted = true;
-          throw quotaError;
-        }
-
-        if ((isTransientRateLimit || isTransient503) && i < retries - 1) {
-          const waitTime = initialDelay * Math.pow(2, i) + Math.random() * 1000; // jitter
-          console.warn(`[EmbeddingService] Transient API error (${error.status}). Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
-          await delay(waitTime);
-        } else {
-          throw error;
-        }
-      }
-    }
+    const { embeddings, model } = await geminiService.embedContent(text, EMBEDDING_DIMENSION);
+    return { vector: embeddings[0].values, model };
   } finally {
     embeddingSemaphore.release();
   }
 };
 
 /**
- * Batch embed chunks natively using Gemini API array support with retry logic
+ * Batch embed chunks natively using Gemini API array support
  */
-const generateBatchEmbeddings = async (texts, retries = 5, initialDelay = 3000) => {
-  if (!texts || texts.length === 0) return [];
+const generateBatchEmbeddings = async (texts) => {
+  if (!texts || texts.length === 0) return { vectors: [], model: null };
   
   await embeddingSemaphore.acquire();
   try {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await ai.models.embedContent({
-          model: EMBEDDING_MODEL,
-          contents: texts, // Natively accepts array of strings for batching
-          config: { outputDimensionality: EMBEDDING_DIMENSION }
-        });
-        
-        if (!response.embeddings || response.embeddings.length === 0) {
-          throw new Error('No embeddings returned by Gemini API');
-        }
-        
-        return response.embeddings.map(e => e.values);
-      } catch (error) {
-        const errorMessage = error.message || '';
-        const isDailyQuotaExhausted = error.status === 429 && (errorMessage.toLowerCase().includes('per day') || errorMessage.toLowerCase().includes('daily'));
-        const isTransientRateLimit = error.status === 429 && !isDailyQuotaExhausted;
-        const isTransient503 = error.status === 503;
-        
-        if (isDailyQuotaExhausted) {
-          const quotaError = new Error(`Daily quota exhausted: ${errorMessage}`);
-          quotaError.isQuotaExhausted = true;
-          throw quotaError;
-        }
-
-        if ((isTransientRateLimit || isTransient503) && i < retries - 1) {
-          const retryAfter = error.response?.headers?.['retry-after'];
-          let waitTime = retryAfter ? parseInt(retryAfter) * 1000 : (initialDelay * Math.pow(2, i) + Math.random() * 1000);
-          console.warn(`[EmbeddingService] Transient API error (${error.status}) for batch of ${texts.length}. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${retries})`);
-          await delay(waitTime);
-        } else {
-          throw error;
-        }
-      }
-    }
+    const { embeddings, model } = await geminiService.embedContent(texts, EMBEDDING_DIMENSION);
+    return { vectors: embeddings.map(e => e.values), model };
   } finally {
     embeddingSemaphore.release();
   }
@@ -141,7 +76,7 @@ const processQueueBatch = async () => {
   const texts = batch.map(item => item.text);
   
   try {
-    const vectors = await generateBatchEmbeddings(texts);
+    const { vectors, model } = await generateBatchEmbeddings(texts);
     batch.forEach((item, idx) => item.onSuccess(vectors[idx]));
   } catch (error) {
     console.error(`Failed to generate embeddings for batch: ${error.message}`);
@@ -211,7 +146,7 @@ const generateEmbeddingsForChunks = (chunks) => {
  * Embed a specific file chunk and persist to pgvector
  */
 const embedChunk = async (chunkId, content) => {
-  const vector = await generateEmbedding(content);
+  const { vector, model } = await generateEmbedding(content);
   if (!vector || vector.length !== EMBEDDING_DIMENSION) {
     throw new Error(`Invalid embedding vector dimension. Expected ${EMBEDDING_DIMENSION}`);
   }
@@ -221,7 +156,7 @@ const embedChunk = async (chunkId, content) => {
     VALUES (
       gen_random_uuid(),
       ${chunkId},
-      ${EMBEDDING_MODEL},
+      ${model},
       ${EMBEDDING_DIMENSION},
       ${vector}::vector,
       NOW()
@@ -266,7 +201,7 @@ const embedChunks = async (chunks, onProgress) => {
     // This will throw if rate limit is hit and retries are exhausted.
     // That's acceptable; the caller will catch it, stop processing, 
     // and the system can resume later since we process in batches.
-    const vectors = await generateBatchEmbeddings(texts);
+    const { vectors, model } = await generateBatchEmbeddings(texts);
     
     await prisma.$transaction(
       batch.map((chunk, idx) => {
@@ -276,7 +211,7 @@ const embedChunks = async (chunks, onProgress) => {
           VALUES (
             gen_random_uuid(),
             ${chunk.id},
-            ${EMBEDDING_MODEL},
+            ${model},
             ${EMBEDDING_DIMENSION},
             ${vector}::vector,
             NOW()
@@ -299,6 +234,5 @@ module.exports = {
   generateEmbeddingsForChunks,
   embedChunk,
   embedChunks,
-  EMBEDDING_MODEL,
   EMBEDDING_DIMENSION
 };

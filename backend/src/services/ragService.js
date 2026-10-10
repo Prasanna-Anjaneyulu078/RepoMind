@@ -1,8 +1,5 @@
-const { GoogleGenAI } = require('@google/genai');
+const geminiService = require('./geminiService');
 const retrievalService = require('./retrievalService');
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 const buildContextString = (chunks) => {
   return chunks.map((chunk, index) => {
@@ -100,14 +97,13 @@ Description: ${componentContext.description}`);
 
   // 5. Call Gemini
   try {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const { response, model } = await geminiService.generateContent({
       contents: prompt,
       config: {
         systemInstruction,
         temperature: 0.1, // Low temperature for factual RAG
       }
-    });
+    }, 'chat');
 
     const answer = response.text;
 
@@ -121,7 +117,8 @@ Description: ${componentContext.description}`);
 
     return {
       answer,
-      sources
+      sources,
+      modelUsed: model
     };
   } catch (err) {
     console.error('Gemini API Error:', err);

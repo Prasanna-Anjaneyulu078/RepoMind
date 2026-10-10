@@ -64,10 +64,10 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
             const status = data.data.ingestionStatus;
             setDetailedProgress(data.data.detailedProgress || null);
             
-            if (status === 'COMPLETED') {
+            if (status === 'COMPLETED' || status === 'QUOTA_BLOCKED') {
               setModalState('READY');
               setRepositoryId(null);
-            } else if (status === 'FAILED' || status === 'EMBEDDING_FAILED' || status === 'EMBEDDING_QUOTA_EXHAUSTED') {
+            } else if (status === 'FAILED' || status === 'EMBEDDING_FAILED') {
               setModalState('FAILED');
               setError(data.data.lastIngestionError || 'Repository indexing failed.');
               setRepositoryId(null);

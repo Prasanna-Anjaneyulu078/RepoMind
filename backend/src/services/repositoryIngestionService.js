@@ -188,7 +188,7 @@ const embedRepositoryChunks = async (repositoryId) => {
   } catch (err) {
     if (err.isQuotaExhausted) {
       console.warn('Embedding quota exhausted, deferring remaining chunks:', err.message);
-      await updateIngestionStatus(repositoryId, 'EMBEDDING_QUOTA_EXHAUSTED', err);
+      await updateIngestionStatus(repositoryId, 'QUOTA_BLOCKED', err);
     } else {
       console.error('Repository embedding failed:', err);
       await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
@@ -211,7 +211,7 @@ const ingestRepository = async (token, repositoryId, userId) => {
   }
 
   // Idempotent resume for embedding: just run the full idempotent pipeline
-  if (repo.ingestionStatus === 'INDEXING_COMPLETED' || repo.ingestionStatus === 'EMBEDDING_FAILED' || repo.ingestionStatus === 'EMBEDDING_QUOTA_EXHAUSTED') {
+  if (repo.ingestionStatus === 'INDEXING_COMPLETED' || repo.ingestionStatus === 'EMBEDDING_FAILED' || repo.ingestionStatus === 'QUOTA_BLOCKED') {
     // Reset status to allow the idempotent ingestion to proceed
     await updateIngestionStatus(repositoryId, 'QUEUED');
   }

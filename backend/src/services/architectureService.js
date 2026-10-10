@@ -1,10 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-const { GoogleGenAI } = require('@google/genai');
-
-// Initialize Gemini if key exists
-const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const geminiService = require('./geminiService');
+const hasAi = !!process.env.GEMINI_API_KEY;
 
 const getArchitecture = async (repositoryId) => {
   const architecture = await prisma.repositoryArchitecture.findUnique({
@@ -167,7 +164,7 @@ const generateArchitecture = async (repositoryId) => {
       layers: []
     };
 
-    if (ai) {
+    if (hasAi) {
       try {
         const prompt = `
           Analyze the following factual architecture data extracted from a repository.
@@ -212,13 +209,12 @@ const generateArchitecture = async (repositoryId) => {
             }
           }, null, 2)}
         `;
-        const response = await ai.models.generateContent({
-          model: GEMINI_MODEL,
+        const { response, model } = await geminiService.generateContent({
           contents: prompt,
           config: {
             responseMimeType: "application/json"
           }
-        });
+        }, 'analysis');
         
         let aiJsonStr = response.text;
         // Clean up markdown wrapper if model ignores responseMimeType

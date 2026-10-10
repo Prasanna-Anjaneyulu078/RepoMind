@@ -264,7 +264,7 @@ const CodeExplorer = ({ activeRepo }) => {
   }
 
   const renderFileContent = () => {
-    if (!['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus)) {
+    if (!['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus)) {
       return (
         <div style={{ padding: '48px', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', maxWidth: '600px', margin: '0 auto' }}>
           
@@ -446,6 +446,13 @@ const CodeExplorer = ({ activeRepo }) => {
         </div>
       </div>
       
+      {repoStatus === 'QUOTA_BLOCKED' && (
+        <div style={{ backgroundColor: 'var(--surface-variant)', padding: '12px 24px', borderBottom: '1px solid var(--outline-variant)' }}>
+          <div style={{ fontWeight: 'bold' }}>Repository files indexed</div>
+          <div style={{ fontSize: '13px', marginTop: '4px' }}>AI semantic indexing is temporarily paused because the embedding service quota is unavailable. Your files remain available in Code Explorer. Embedding work will resume when a compatible model and quota are available.</div>
+        </div>
+      )}
+      
       {(loadingTree && tree.length === 0) || (repoStatus && ['QUEUED', 'INGESTING'].includes(repoStatus)) ? (
         <LoadingState />
       ) : (
@@ -453,7 +460,7 @@ const CodeExplorer = ({ activeRepo }) => {
         {/* File Tree */}
         <div className="ide-tree-pane pane-mobile-active">
           <div className="tree-scrollable-area">
-            {repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED'].includes(repoStatus) ? (
+            {repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus) ? (
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {repoStatus === 'NOT_INGESTED' && 'Repository files are not indexed yet.'}
                 {repoStatus === 'QUEUED' && 'Repository indexing is queued.'}
