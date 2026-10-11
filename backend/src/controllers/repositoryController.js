@@ -84,7 +84,22 @@ const connectRepository = async (req, res, next) => {
     });
 
     if (existingRepo) {
-      return res.status(409).json({ success: false, message: 'Repository already connected' });
+      // If the repository is already connected and was FAILED or NOT_INGESTED, trigger fresh ingestion
+      if (['NOT_INGESTED', 'FAILED'].includes(existingRepo.ingestionStatus)) {
+        await prisma.repository.update({
+          where: { id: existingRepo.id },
+          data: { ingestionStatus: 'QUEUED', ingestionStartedAt: new Date(), lastIngestionError: null }
+        });
+        repositoryIngestionService.ingestRepository(token, existingRepo.id, req.user.id).catch(err => {
+          console.error('Background ingestion error during reconnect:', err);
+        });
+      }
+      return res.status(200).json({ 
+        success: true, 
+        data: existingRepo, 
+        alreadyConnected: true,
+        message: 'Repository is already connected.' 
+      });
     }
 
     // Set status to QUEUED during creation

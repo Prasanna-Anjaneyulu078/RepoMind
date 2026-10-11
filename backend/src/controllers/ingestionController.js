@@ -62,31 +62,31 @@ const getIngestionStatus = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const repo = await prisma.repository.findFirst({
-      where: { id, userId },
-      select: {
-        id: true,
-        name: true,
-        ingestionStatus: true,
-        ingestionStartedAt: true,
-        ingestionCompletedAt: true,
-        lastIngestionError: true,
-        fileCount: true,
-        fileIndexingStatus: true,
-        embeddingStatus: true,
-        embeddingPauseReason: true,
-        totalChunks: true,
-        processedChunks: true,
-        failedChunks: true,
-        pendingChunks: true,
-        lastSuccessfulEmbeddingAt: true,
-        lastAttemptedEmbeddingAt: true,
-        nextRetryAt: true
-      }
+    let repo = await prisma.repository.findFirst({
+      where: { id, userId }
     });
 
     if (!repo) {
       return res.status(404).json({ success: false, message: 'Repository not found' });
+    }
+
+    // Defensive fallback: if the runtime Prisma client has not yet refreshed its generated model,
+    // fetch the persistent status fields directly from the database row.
+    if (repo.fileIndexingStatus === undefined) {
+      try {
+        const rawRows = await prisma.$queryRaw`
+          SELECT "fileIndexingStatus", "embeddingStatus", "embeddingPauseReason", 
+                 "totalChunks", "processedChunks", "failedChunks", "pendingChunks",
+                 "lastSuccessfulEmbeddingAt", "lastAttemptedEmbeddingAt", "nextRetryAt"
+          FROM "Repository" WHERE id = ${id} AND "userId" = ${userId}
+        `;
+        if (rawRows && rawRows[0]) {
+          Object.assign(repo, rawRows[0]);
+        }
+      } catch (_rawErr) {
+        repo.fileIndexingStatus = repo.ingestionStatus === 'COMPLETED' ? 'COMPLETED' : 'IN_PROGRESS';
+        repo.embeddingStatus = repo.ingestionStatus === 'COMPLETED' ? 'COMPLETED' : 'NOT_STARTED';
+      }
     }
 
     // Always fetch live DB chunk counts to guarantee 100% accuracy across restarts

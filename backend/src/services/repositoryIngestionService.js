@@ -105,11 +105,49 @@ const updateIngestionStatus = async (repositoryId, status, error = null, fileCou
   if (latestCommitSha !== undefined) {
     data.latestCommitSha = latestCommitSha;
   }
-  
-  await prisma.repository.update({
-    where: { id: repositoryId },
-    data
-  });
+  try {
+    await prisma.repository.update({
+      where: { id: repositoryId },
+      data
+    });
+  } catch (err) {
+    if (err.name === 'PrismaClientValidationError' || (err.message && err.message.includes('Unknown argument'))) {
+      const newFieldKeys = [
+        'fileIndexingStatus', 'embeddingStatus', 'embeddingPauseReason', 
+        'totalChunks', 'processedChunks', 'failedChunks', 'pendingChunks', 
+        'lastSuccessfulEmbeddingAt', 'lastAttemptedEmbeddingAt', 'nextRetryAt'
+      ];
+      const standardData = {};
+      const newFields = {};
+      for (const [key, val] of Object.entries(data)) {
+        if (newFieldKeys.includes(key)) {
+          newFields[key] = val;
+        } else {
+          standardData[key] = val;
+        }
+      }
+      if (Object.keys(standardData).length > 0) {
+        await prisma.repository.update({ where: { id: repositoryId }, data: standardData });
+      }
+      try {
+        await prisma.$executeRaw`
+          UPDATE "Repository"
+          SET "fileIndexingStatus" = COALESCE(${newFields.fileIndexingStatus ?? null}, "fileIndexingStatus"),
+              "embeddingStatus" = COALESCE(${newFields.embeddingStatus ?? null}, "embeddingStatus"),
+              "embeddingPauseReason" = ${newFields.embeddingPauseReason ?? null},
+              "totalChunks" = COALESCE(${newFields.totalChunks ?? null}, "totalChunks"),
+              "processedChunks" = COALESCE(${newFields.processedChunks ?? null}, "processedChunks"),
+              "pendingChunks" = COALESCE(${newFields.pendingChunks ?? null}, "pendingChunks"),
+              "nextRetryAt" = ${newFields.nextRetryAt ?? null}
+          WHERE id = ${repositoryId}
+        `;
+      } catch (rawErr) {
+        console.warn(`[repositoryIngestionService] Raw SQL fallback failed for ${repositoryId}:`, rawErr.message);
+      }
+    } else {
+      throw err;
+    }
+  }
 };
 
 const getChunkMetrics = async (repositoryId) => {

@@ -112,10 +112,23 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
         credentials: 'include'
       }, true);
 
-      setRepositoryId(data.data.id);
+      if (data?.data?.id) {
+        setRepositoryId(data.data.id);
+        if (data.alreadyConnected) {
+          if (['COMPLETED', 'INDEXING_COMPLETED', 'QUOTA_BLOCKED'].includes(data.data.ingestionStatus)) {
+            setModalState('READY');
+            return;
+          }
+        }
+      }
     } catch (err) {
-      setError(err.message);
-      setModalState('FAILED');
+      if (err.message && err.message.toLowerCase().includes('already connected')) {
+        setError('This repository is already connected to your account.');
+        setModalState('ALREADY_CONNECTED');
+      } else {
+        setError(err.message);
+        setModalState('FAILED');
+      }
     }
   };
 
@@ -271,11 +284,23 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
                 </div>
               )}
 
+              {modalState === 'ALREADY_CONNECTED' && (
+                <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--surface-variant)', borderRadius: '8px', border: '1px solid var(--outline-variant)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', fontWeight: 'bold', marginBottom: '8px' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>check_circle</span>
+                    <span>Repository already connected</span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--on-surface-variant)', lineHeight: '1.5' }}>
+                    This repository is already connected to your account. You can open and explore it immediately.
+                  </div>
+                </div>
+              )}
+
               {modalState === 'FAILED' && (
                 <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(255, 0, 0, 0.05)', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--error, red)', fontWeight: 'bold', marginBottom: '8px' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>error</span>
-                    <span>Repository analysis failed</span>
+                    <span>{error?.toLowerCase().includes('already connected') ? 'Repository already connected' : 'Repository analysis failed'}</span>
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--on-surface)' }}>
                     {error || 'Unable to retrieve repository files from GitHub.'}
@@ -313,10 +338,30 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
             </button>
           )}
 
+          {modalState === 'ALREADY_CONNECTED' && (
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button type="button" className="btn-cancel" onClick={handleCancel} style={{ flex: 1, justifyContent: 'center' }}>
+                Cancel
+              </button>
+              <button type="button" className="btn-action-primary" onClick={handleOpenRepo} style={{ flex: 2, justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>auto_stories</span>
+                <span>Open Repository</span>
+              </button>
+            </div>
+          )}
+
           {(modalState === 'QUEUED' || modalState === 'INDEXING' || modalState === 'FAILED') && (
-            <button type="button" className="btn-cancel" onClick={handleCancel} style={{ width: '100%', justifyContent: 'center' }}>
-              Cancel
-            </button>
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button type="button" className="btn-cancel" onClick={handleCancel} style={{ flex: 1, justifyContent: 'center' }}>
+                Cancel
+              </button>
+              {error?.toLowerCase().includes('already connected') && (
+                <button type="button" className="btn-action-primary" onClick={handleOpenRepo} style={{ flex: 2, justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>auto_stories</span>
+                  <span>Open Repository</span>
+                </button>
+              )}
+            </div>
           )}
 
           {modalState === 'READY' && (
