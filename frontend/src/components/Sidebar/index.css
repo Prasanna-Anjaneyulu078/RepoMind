@@ -140,9 +140,16 @@
 .status-dot.failed {
   background-color: var(--error);
 }
-.status-dot.queued, .status-dot.ingesting {
+.status-dot.queued, .status-dot.ingesting, .status-dot.indexing {
   background-color: var(--primary);
 }
+.status-dot.paused {
+  background-color: #d97706; /* Amber */
+}
+.status-dot.indexed {
+  background-color: #0284c7; /* Cyan / Blue */
+}
+
 
 .repo-dropdown-menu {
   position: absolute;

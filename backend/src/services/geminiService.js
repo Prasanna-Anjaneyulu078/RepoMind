@@ -43,11 +43,14 @@ class GeminiService {
       return 'MODEL_NOT_FOUND';
     }
     if (status === 429) {
-      // True hard quota exhaustion: daily quota or billing limits
-      if (msg.includes('per day') || msg.includes('daily') || msg.includes('billing') || msg.includes('limit: 0')) {
+      if (msg.includes('billing') || msg.includes('plan') || msg.includes('credit')) {
+        return 'BILLING_LIMIT';
+      }
+      // True hard quota exhaustion: daily quota or zero limit
+      if (msg.includes('per day') || msg.includes('daily') || msg.includes('limit: 0') || msg.includes('resource_exhausted')) {
         return 'QUOTA_EXHAUSTED';
       }
-      // Standard 429 (burst/RPM)
+      // Standard burst/RPM rate limit
       return 'RATE_LIMIT';
     }
     if (status === 500 || status === 503 || status === 504) {
@@ -124,11 +127,16 @@ class GeminiService {
       }
     }
     
+    const errorType = lastError ? this.classifyError(lastError) : 'UNKNOWN_ERROR';
     const err = new Error(`All configured models for ${operationName} failed or are exhausted: ${lastError ? lastError.message : 'Unknown error'}`);
-    err.isQuotaExhausted = true;
+    err.isQuotaExhausted = (errorType === 'QUOTA_EXHAUSTED' || errorType === 'BILLING_LIMIT');
+    err.isRateLimited = (errorType === 'RATE_LIMIT');
+    err.isServiceUnavailable = (errorType === 'SERVICE_UNAVAILABLE');
+    err.pauseReason = errorType;
     err.originalError = lastError;
     throw err;
   }
+
 
   async embedContent(texts, outputDimensionality) {
     const models = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels].filter(Boolean);

@@ -1,23 +1,28 @@
 const app = require('./app');
 const { PORT } = require('./config/env');
 const prisma = require('./config/database');
-const { recoverStaleIngestions } = require('./services/startupRecoveryService');
+const { recoverStaleIngestions, startRecoveryScheduler, stopRecoveryScheduler } = require('./services/startupRecoveryService');
 
 const startServer = async () => {
   // 1. Recover stale ingestion jobs on startup
   await recoverStaleIngestions();
 
-  // 2. Start accepting HTTP requests
+  // 2. Start periodic background recovery scheduler for paused/eligible embedding jobs
+  startRecoveryScheduler();
+
+  // 3. Start accepting HTTP requests
   const server = app.listen(PORT, () => {
     console.log(`Server started on port ${PORT}`);
   });
 
   const gracefulShutdown = async () => {
     console.log('Received shutdown signal, shutting down gracefully...');
+    stopRecoveryScheduler();
     
     // Close HTTP server first to stop accepting new requests
     server.close(async () => {
       console.log('HTTP server stopped');
+
       
       // Disconnect Prisma connections cleanly
       try {

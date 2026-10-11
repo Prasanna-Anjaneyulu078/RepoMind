@@ -57,6 +57,18 @@ model Repository {
   fileCount            Int      @default(0)
   latestCommitSha      String?
 
+  // Granular two-stage indexing persistence
+  fileIndexingStatus   String   @default("NOT_INDEXED") // NOT_INDEXED, INDEXING, COMPLETED, FAILED
+  embeddingStatus      String   @default("NOT_STARTED") // NOT_STARTED, EMBEDDING, PAUSED, COMPLETED, FAILED
+  embeddingPauseReason String?                          // QUOTA_EXHAUSTED, RATE_LIMIT, BILLING_LIMIT, SERVICE_UNAVAILABLE
+  totalChunks          Int      @default(0)
+  processedChunks      Int      @default(0)
+  failedChunks         Int      @default(0)
+  pendingChunks        Int      @default(0)
+  lastSuccessfulEmbeddingAt DateTime?
+  lastAttemptedEmbeddingAt  DateTime?
+  nextRetryAt               DateTime?
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   

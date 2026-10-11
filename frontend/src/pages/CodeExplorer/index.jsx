@@ -81,7 +81,8 @@ const CodeExplorer = ({ activeRepo }) => {
   // Polling for repository indexing status
   useEffect(() => {
     let intervalId;
-    if (activeRepo && activeRepo.id && (repoStatus === 'QUEUED' || repoStatus === 'INGESTING')) {
+    const currentStatus = repoStatus?.ingestionStatus || activeRepo?.ingestionStatus;
+    if (activeRepo && activeRepo.id && (currentStatus === 'QUEUED' || currentStatus === 'INGESTING' || currentStatus === 'EMBEDDING')) {
       intervalId = setInterval(() => {
         loadTree();
       }, 3000);
@@ -90,6 +91,7 @@ const CodeExplorer = ({ activeRepo }) => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [activeRepo, repoStatus]);
+
 
   const latestOpenFiles = useRef(openFiles);
   const latestActiveFilePath = useRef(activeFilePath);
@@ -120,10 +122,10 @@ const CodeExplorer = ({ activeRepo }) => {
 
       if (data.success && data.data) {
         setTree(data.data.tree || []);
-        setRepoStatus(data.data.repository?.ingestionStatus || null);
+        setRepoStatus(data.data.repository || null);
       }
     } catch (err) {
-      if (repoStatus === 'QUEUED' || repoStatus === 'INGESTING') {
+      if (repoStatus?.ingestionStatus === 'QUEUED' || repoStatus?.ingestionStatus === 'INGESTING') {
          // Silently fail polling
       } else {
         showError({
@@ -446,27 +448,48 @@ const CodeExplorer = ({ activeRepo }) => {
         </div>
       </div>
       
-      {repoStatus === 'QUOTA_BLOCKED' && (
-        <div style={{ backgroundColor: 'var(--surface-variant)', padding: '12px 24px', borderBottom: '1px solid var(--outline-variant)' }}>
-          <div style={{ fontWeight: 'bold' }}>Repository files indexed</div>
-          <div style={{ fontSize: '13px', marginTop: '4px' }}>AI semantic indexing is temporarily paused because the embedding service quota is unavailable. Your files remain available in Code Explorer. Embedding work will resume when a compatible model and quota are available.</div>
+      {/* Persistent Status Banner for Quota Paused or Pending Embeddings */}
+      {(repoStatus?.ingestionStatus === 'QUOTA_BLOCKED' || (repoStatus?.fileIndexingStatus === 'COMPLETED' && repoStatus?.embeddingStatus === 'PAUSED')) && (
+        <div style={{ backgroundColor: 'var(--surface-variant)', padding: '14px 24px', borderBottom: '1px solid var(--outline-variant)' }}>
+          <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--primary)' }}>folder_check</span>
+            Repository files indexed
+          </div>
+          <div style={{ fontSize: '13px', marginTop: '4px', color: 'var(--on-surface-variant)', lineHeight: '1.5' }}>
+            AI semantic indexing is temporarily paused because the embedding service quota is unavailable. Your files remain available in Code Explorer. Embedding work will resume when a compatible model and quota are available.
+          </div>
+          {repoStatus?.totalChunks > 0 && (
+            <div style={{ fontSize: '12px', marginTop: '6px', color: 'var(--on-surface-variant)' }}>
+              Embeddings progress: <strong>{repoStatus.processedChunks}</strong> of <strong>{repoStatus.totalChunks}</strong> chunks generated ({repoStatus.pendingChunks} pending)
+            </div>
+          )}
+        </div>
+      )}
+
+      {repoStatus?.ingestionStatus === 'EMBEDDING' && (
+        <div style={{ backgroundColor: 'var(--surface-container-high)', padding: '12px 24px', borderBottom: '1px solid var(--outline-variant)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span className="material-symbols-outlined spinning" style={{ fontSize: '16px', color: 'var(--primary)' }}>sync</span>
+          <div style={{ fontSize: '13px', color: 'var(--on-surface)' }}>
+            <strong>Semantic indexing in progress</strong> — Generating embeddings ({repoStatus.processedChunks || 0} / {repoStatus.totalChunks || 0} chunks)...
+          </div>
         </div>
       )}
       
-      {(loadingTree && tree.length === 0) || (repoStatus && ['QUEUED', 'INGESTING'].includes(repoStatus)) ? (
+      {(loadingTree && tree.length === 0) || (repoStatus?.ingestionStatus && ['QUEUED', 'INGESTING'].includes(repoStatus.ingestionStatus)) ? (
         <LoadingState />
       ) : (
       <div className="ide-main-panes">
         {/* File Tree */}
         <div className="ide-tree-pane pane-mobile-active">
           <div className="tree-scrollable-area">
-            {repoStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus) ? (
+            {repoStatus?.ingestionStatus && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus.ingestionStatus) ? (
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {repoStatus === 'NOT_INGESTED' && 'Repository files are not indexed yet.'}
-                {repoStatus === 'QUEUED' && 'Repository indexing is queued.'}
-                {repoStatus === 'INGESTING' && 'Indexing in progress...'}
-                {repoStatus === 'FAILED' && 'Repository indexing failed.'}
+                {repoStatus.ingestionStatus === 'NOT_INGESTED' && 'Repository files are not indexed yet.'}
+                {repoStatus.ingestionStatus === 'QUEUED' && 'Repository indexing is queued.'}
+                {repoStatus.ingestionStatus === 'INGESTING' && 'Indexing in progress...'}
+                {repoStatus.ingestionStatus === 'FAILED' && 'Repository indexing failed.'}
               </div>
+
             ) : tree.length === 0 ? (
               <div style={{ padding: '16px', fontSize: '13px', color: 'var(--on-surface-variant)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>search_off</span>

@@ -286,18 +286,22 @@ const ConnectModal = ({ isOpen, onClose, onConnectSuccess }) => {
               {modalState === 'READY' && (
                 <div style={{ marginTop: '16px' }}>
                   <p style={{ fontSize: '14px', color: 'var(--on-surface)', marginBottom: '16px' }}>
-                    Your repository has been successfully analyzed and indexed.
+                    {detailedProgress?.pendingChunks > 0
+                      ? 'Repository files are indexed and ready to browse. Semantic indexing is paused or in progress.'
+                      : 'Your repository has been successfully analyzed and indexed.'}
                   </p>
                   
                   {detailedProgress && (
-                    <div className="progress-metrics" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', padding: '12px', backgroundColor: 'var(--background-alt)', borderRadius: '6px' }}>
+                    <div className="progress-metrics" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', padding: '12px', backgroundColor: 'var(--background-alt, var(--surface-container))', borderRadius: '6px' }}>
                       <div>Files indexed: <strong>{detailedProgress.processed}</strong></div>
                       <div>Code chunks: <strong>{detailedProgress.totalChunks || 0}</strong></div>
-                      <div>Embeddings generated: <strong>{detailedProgress.embeddedChunks || detailedProgress.totalChunks || 0}</strong></div>
+                      <div>Embeddings generated: <strong>{detailedProgress.embeddedChunks || 0}</strong></div>
+                      <div>Pending embeddings: <strong>{detailedProgress.pendingChunks || 0}</strong></div>
                     </div>
                   )}
                 </div>
               )}
+
             </div>
           )}
         </div>

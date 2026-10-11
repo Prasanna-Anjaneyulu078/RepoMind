@@ -75,7 +75,7 @@ const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) =>
     <div className="repo-card repo-card--full" style={{ position: 'relative' }}>
       <div className="repo-card-content">
         <div className="repo-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', overflow: 'hidden', gap: '8px' }}>
             <h2
               className="repo-card-title"
               onClick={() => onOpenRepo(repo)}
@@ -85,6 +85,30 @@ const RepositoryCard = ({ repo, onOpenRepo, onDeleteRepo, variant = 'full' }) =>
               {repo.name}
             </h2>
           </div>
+          <span className={`status-pill ${
+            repo.ingestionStatus === 'COMPLETED' ? 'status-pill--completed' :
+            (repo.ingestionStatus === 'QUOTA_BLOCKED' || repo.embeddingStatus === 'PAUSED') ? 'status-pill--paused' :
+            repo.ingestionStatus === 'INDEXING_COMPLETED' ? 'status-pill--indexed' :
+            repo.ingestionStatus === 'EMBEDDING' ? 'status-pill--indexing' :
+            repo.ingestionStatus === 'INGESTING' || repo.ingestionStatus === 'QUEUED' ? 'status-pill--indexing' :
+            (repo.ingestionStatus === 'FAILED' || repo.ingestionStatus === 'EMBEDDING_FAILED') ? 'status-pill--failed' :
+            'status-pill--idle'
+          }`} style={{
+            fontSize: '11px',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontWeight: 500,
+            whiteSpace: 'nowrap'
+          }}>
+            {repo.ingestionStatus === 'COMPLETED' ? 'Semantic indexing complete' :
+             (repo.ingestionStatus === 'QUOTA_BLOCKED' || repo.embeddingStatus === 'PAUSED') ? 'Semantic indexing paused' :
+             repo.ingestionStatus === 'INDEXING_COMPLETED' ? 'Repository files indexed' :
+             repo.ingestionStatus === 'EMBEDDING' ? 'Semantic indexing in progress' :
+             (repo.ingestionStatus === 'INGESTING' || repo.ingestionStatus === 'QUEUED') ? 'Indexing files' :
+             (repo.ingestionStatus === 'FAILED' || repo.ingestionStatus === 'EMBEDDING_FAILED') ? 'Semantic indexing failed' :
+             'Not indexed'}
+          </span>
+
         </div>
         <div className="repo-card-owner" title={repo.fullName}>
           {repo.fullName}

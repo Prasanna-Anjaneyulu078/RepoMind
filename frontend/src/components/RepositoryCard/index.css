@@ -178,3 +178,34 @@
 .btn-remove-confirm:disabled {
   opacity: 0.7;
 }
+
+.status-pill--completed {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.status-pill--paused {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.status-pill--indexed {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.status-pill--indexing {
+  background-color: #e0e7ff;
+  color: #4338ca;
+}
+
+.status-pill--failed {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-pill--idle {
+  background-color: var(--surface-container);
+  color: var(--on-surface-variant);
+}
+

@@ -58,14 +58,25 @@ const Sidebar = ({ activeRepo, onSelectRepo, repositories, isOpen, onClose }) =>
                 {activeRepo ? activeRepo.name : 'Select Repository'}
               </span>
               <span className="workspace-status">
-                <span className={`status-dot ${activeRepo?.ingestionStatus?.toLowerCase() || 'none'}`}></span>
+                <span className={`status-dot ${
+                  activeRepo?.ingestionStatus === 'COMPLETED' ? 'completed' :
+                  (activeRepo?.ingestionStatus === 'QUOTA_BLOCKED' || activeRepo?.embeddingStatus === 'PAUSED') ? 'paused' :
+                  activeRepo?.ingestionStatus === 'INDEXING_COMPLETED' ? 'indexed' :
+                  (activeRepo?.ingestionStatus === 'FAILED' || activeRepo?.ingestionStatus === 'EMBEDDING_FAILED' || activeRepo?.fileIndexingStatus === 'FAILED') ? 'failed' :
+                  ['QUEUED', 'INGESTING', 'EMBEDDING'].includes(activeRepo?.ingestionStatus) ? 'indexing' : 'none'
+                }`}></span>
                 {activeRepo ? (
-                  activeRepo.ingestionStatus === 'COMPLETED' ? 'Indexed' :
-                  (activeRepo.ingestionStatus === 'FAILED' || activeRepo.ingestionStatus === 'EMBEDDING_FAILED') ? 'Failed' :
-                  ['QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(activeRepo.ingestionStatus) ? 'Indexing...' :
+                  activeRepo.ingestionStatus === 'COMPLETED' ? 'Semantic indexing complete' :
+                  (activeRepo.ingestionStatus === 'QUOTA_BLOCKED' || activeRepo.embeddingStatus === 'PAUSED') ? 'Semantic indexing paused' :
+                  activeRepo.ingestionStatus === 'INDEXING_COMPLETED' ? 'Repository files indexed' :
+                  activeRepo.ingestionStatus === 'EMBEDDING' ? 'Semantic indexing in progress' :
+                  activeRepo.ingestionStatus === 'INGESTING' ? 'Indexing files' :
+                  activeRepo.ingestionStatus === 'QUEUED' ? 'Indexing files' :
+                  (activeRepo.ingestionStatus === 'FAILED' || activeRepo.ingestionStatus === 'EMBEDDING_FAILED') ? 'Semantic indexing failed' :
                   'Not Indexed'
                 ) : 'Not Indexed'}
               </span>
+
             </div>
           </div>
           <span className="material-symbols-outlined workspace-chevron">

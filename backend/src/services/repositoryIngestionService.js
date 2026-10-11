@@ -52,19 +52,53 @@ const sanitizeErrorMessage = (error) => {
   return msg.replace(/[A-Za-z0-9_\-]{20,}/g, '[REDACTED]').slice(0, 300);
 };
 
-const updateIngestionStatus = async (repositoryId, status, error = null, fileCount = undefined, latestCommitSha = undefined) => {
-  const data = { ingestionStatus: status };
+const updateIngestionStatus = async (repositoryId, status, error = null, fileCount = undefined, latestCommitSha = undefined, extraData = {}) => {
+  const data = { ingestionStatus: status, ...extraData };
   if (status === 'INGESTING') {
     data.ingestionStartedAt = new Date();
     data.lastIngestionError = null;
-  } else if (status === 'COMPLETED' || status === 'FAILED') {
+    data.fileIndexingStatus = 'INDEXING';
+    if (!data.embeddingStatus) data.embeddingStatus = 'NOT_STARTED';
+  } else if (status === 'INDEXING_COMPLETED') {
+    data.fileIndexingStatus = 'COMPLETED';
+    if (!data.embeddingStatus || data.embeddingStatus === 'NOT_STARTED') {
+      data.embeddingStatus = 'NOT_STARTED';
+    }
+  } else if (status === 'EMBEDDING') {
+    data.fileIndexingStatus = 'COMPLETED';
+    data.embeddingStatus = 'EMBEDDING';
+    data.lastAttemptedEmbeddingAt = new Date();
+  } else if (status === 'QUOTA_BLOCKED') {
+    data.fileIndexingStatus = 'COMPLETED';
+    data.embeddingStatus = 'PAUSED';
+    data.embeddingPauseReason = extraData.embeddingPauseReason || 'QUOTA_EXHAUSTED';
+    data.lastAttemptedEmbeddingAt = new Date();
+    if (!data.nextRetryAt) {
+      data.nextRetryAt = new Date(Date.now() + 30 * 60 * 1000);
+    }
+  } else if (status === 'COMPLETED') {
     data.ingestionCompletedAt = new Date();
+    data.fileIndexingStatus = 'COMPLETED';
+    data.embeddingStatus = 'COMPLETED';
+    data.embeddingPauseReason = null;
+    data.lastSuccessfulEmbeddingAt = new Date();
+    data.nextRetryAt = null;
+    data.lastIngestionError = null;
+  } else if (status === 'FAILED') {
+    data.ingestionCompletedAt = new Date();
+    data.fileIndexingStatus = 'FAILED';
+  } else if (status === 'EMBEDDING_FAILED') {
+    data.fileIndexingStatus = 'COMPLETED';
+    data.embeddingStatus = 'FAILED';
+    data.lastAttemptedEmbeddingAt = new Date();
   }
+
   if (error) {
     data.lastIngestionError = sanitizeErrorMessage(error);
-  } else if (status === 'COMPLETED' || status === 'INDEXING_COMPLETED') {
+  } else if (status === 'COMPLETED') {
     data.lastIngestionError = null;
   }
+
   if (fileCount !== undefined) {
     data.fileCount = fileCount;
   }
@@ -77,6 +111,18 @@ const updateIngestionStatus = async (repositoryId, status, error = null, fileCou
     data
   });
 };
+
+const getChunkMetrics = async (repositoryId) => {
+  const totalChunks = await prisma.fileChunk.count({
+    where: { repositoryFile: { repositoryId } }
+  });
+  const processedChunks = await prisma.chunkEmbedding.count({
+    where: { fileChunk: { repositoryFile: { repositoryId } } }
+  });
+  const pendingChunks = Math.max(0, totalChunks - processedChunks);
+  return { totalChunks, processedChunks, pendingChunks };
+};
+
 
 const getRepositoryTree = async (token, owner, repo, branch) => {
   const url = `${GITHUB_API_URL}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
@@ -185,7 +231,17 @@ const fetchFileContent = async (token, owner, repo, branch, path, retries = 3) =
 
 const embedRepositoryChunks = async (repositoryId) => {
   const startEmbeddingTime = Date.now();
-  await updateIngestionStatus(repositoryId, 'EMBEDDING');
+  
+  // Calculate current chunk metrics
+  const { totalChunks, processedChunks, pendingChunks } = await getChunkMetrics(repositoryId);
+  
+  await updateIngestionStatus(repositoryId, 'EMBEDDING', null, undefined, undefined, {
+    totalChunks,
+    processedChunks,
+    pendingChunks,
+    lastAttemptedEmbeddingAt: new Date()
+  });
+
   try {
     // Find chunks that don't have embeddings yet
     const chunksWithoutEmbeddings = await prisma.$queryRaw`
@@ -198,34 +254,79 @@ const embedRepositoryChunks = async (repositoryId) => {
     const progress = progressStore.get(repositoryId);
     if (progress) {
       progress.stage = 'Generating embeddings';
-      progress.totalChunks = chunksWithoutEmbeddings.length;
-      progress.embeddedChunks = 0;
+      progress.totalChunks = totalChunks;
+      progress.embeddedChunks = processedChunks;
     }
 
     if (chunksWithoutEmbeddings.length > 0) {
-      await embeddingService.embedChunks(chunksWithoutEmbeddings, (embedded) => {
-         if (progress) progress.embeddedChunks += embedded;
+      await embeddingService.embedChunks(chunksWithoutEmbeddings, async (embeddedCount) => {
+         if (progress) progress.embeddedChunks += embeddedCount;
+         
+         // Periodically update persisted embedding counts in DB
+         try {
+           const metrics = await getChunkMetrics(repositoryId);
+           await prisma.repository.update({
+             where: { id: repositoryId },
+             data: {
+               processedChunks: metrics.processedChunks,
+               pendingChunks: metrics.pendingChunks,
+               lastSuccessfulEmbeddingAt: new Date()
+             }
+           });
+         } catch (metricErr) {
+           // non-blocking metric sync
+         }
       });
     }
     
-    if (progress) progress.stage = 'Repository ready';
+    const finalMetrics = await getChunkMetrics(repositoryId);
+    
+    if (progress) {
+      progress.stage = 'Repository ready';
+      progress.embeddedChunks = finalMetrics.processedChunks;
+      progress.totalChunks = finalMetrics.totalChunks;
+    }
     
     console.log(`[Indexing] Embedding completed in ${((Date.now() - startEmbeddingTime)/1000).toFixed(1)}s`);
     
-    // Only update to COMPLETED if not already updated by another process
+    // Check if another job transitioned state
     const repoCheck = await prisma.repository.findUnique({ where: { id: repositoryId } });
-    if (repoCheck && repoCheck.ingestionStatus === 'EMBEDDING') {
-      await updateIngestionStatus(repositoryId, 'COMPLETED');
+    if (repoCheck && ['EMBEDDING', 'INDEXING_COMPLETED'].includes(repoCheck.ingestionStatus)) {
+      await updateIngestionStatus(repositoryId, 'COMPLETED', null, undefined, undefined, {
+        totalChunks: finalMetrics.totalChunks,
+        processedChunks: finalMetrics.processedChunks,
+        pendingChunks: 0,
+        failedChunks: 0,
+        lastSuccessfulEmbeddingAt: new Date(),
+        nextRetryAt: null
+      });
     }
   } catch (err) {
-    if (err.isQuotaExhausted) {
-      console.warn('Embedding quota exhausted, deferring remaining chunks:', err.message);
-      await updateIngestionStatus(repositoryId, 'QUOTA_BLOCKED', err);
+    const errorMetrics = await getChunkMetrics(repositoryId);
+    const pauseReason = err.pauseReason || (err.isQuotaExhausted ? 'QUOTA_EXHAUSTED' : err.isRateLimited ? 'RATE_LIMIT' : 'SERVICE_UNAVAILABLE');
+    
+    if (err.isQuotaExhausted || err.isRateLimited || err.pauseReason === 'QUOTA_EXHAUSTED' || err.pauseReason === 'BILLING_LIMIT') {
+      console.warn(`[Indexing] Embedding paused (${pauseReason}): ${err.message}`);
+      
+      const retryDelayMs = pauseReason === 'RATE_LIMIT' ? 2 * 60 * 1000 : 30 * 60 * 1000;
+      await updateIngestionStatus(repositoryId, 'QUOTA_BLOCKED', err, undefined, undefined, {
+        totalChunks: errorMetrics.totalChunks,
+        processedChunks: errorMetrics.processedChunks,
+        pendingChunks: errorMetrics.pendingChunks,
+        embeddingPauseReason: pauseReason,
+        lastAttemptedEmbeddingAt: new Date(),
+        nextRetryAt: new Date(Date.now() + retryDelayMs)
+      });
     } else {
-      console.error('Repository embedding failed:', err);
-      await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err);
+      console.error('[Indexing] Repository embedding failed non-recoverably:', err);
+      await updateIngestionStatus(repositoryId, 'EMBEDDING_FAILED', err, undefined, undefined, {
+        totalChunks: errorMetrics.totalChunks,
+        processedChunks: errorMetrics.processedChunks,
+        pendingChunks: errorMetrics.pendingChunks,
+        failedChunks: errorMetrics.pendingChunks,
+        lastAttemptedEmbeddingAt: new Date()
+      });
     }
-    // Do not throw the error upwards, allow the ingestion pipeline to finish gracefully
   } finally {
     setTimeout(() => progressStore.delete(repositoryId), 5 * 60 * 1000); // Clear after 5 mins
   }
@@ -505,13 +606,19 @@ const ingestRepository = async (token, repositoryId, userId) => {
     }
 
     if (progress) progress.stage = 'Files indexed, waiting for embeddings...';
-    await updateIngestionStatus(repositoryId, 'INDEXING_COMPLETED', null, processedCount + skippedCount, latestCommitSha);
+    const initialMetrics = await getChunkMetrics(repositoryId);
+    await updateIngestionStatus(repositoryId, 'INDEXING_COMPLETED', null, processedCount + skippedCount, latestCommitSha, {
+      totalChunks: initialMetrics.totalChunks,
+      processedChunks: initialMetrics.processedChunks,
+      pendingChunks: initialMetrics.pendingChunks
+    });
     console.log(`[Indexing] Total preparation time: ${((Date.now() - totalStartTime)/1000).toFixed(1)}s`);
 
     // Background embedding task
     embedRepositoryChunks(repositoryId).catch(err => {
       console.error('Background embedding failed immediately:', err);
     });
+
 
   } catch (err) {
     console.error('Ingestion failed:', err);

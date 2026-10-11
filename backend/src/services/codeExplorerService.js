@@ -79,7 +79,20 @@ const getRepositoryTree = async (repositoryId, userId) => {
   });
 
   return {
-    repository: { id: repo.id, name: repo.name, ingestionStatus: repo.ingestionStatus },
+    repository: { 
+      id: repo.id, 
+      name: repo.name, 
+      ingestionStatus: repo.ingestionStatus,
+      fileIndexingStatus: repo.fileIndexingStatus,
+      embeddingStatus: repo.embeddingStatus,
+      embeddingPauseReason: repo.embeddingPauseReason,
+      totalChunks: repo.totalChunks,
+      processedChunks: repo.processedChunks,
+      pendingChunks: repo.pendingChunks,
+      lastSuccessfulEmbeddingAt: repo.lastSuccessfulEmbeddingAt,
+      lastAttemptedEmbeddingAt: repo.lastAttemptedEmbeddingAt,
+      nextRetryAt: repo.nextRetryAt
+    },
     tree: buildTree(files)
   };
 };

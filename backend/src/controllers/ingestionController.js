@@ -71,7 +71,17 @@ const getIngestionStatus = async (req, res, next) => {
         ingestionStartedAt: true,
         ingestionCompletedAt: true,
         lastIngestionError: true,
-        fileCount: true
+        fileCount: true,
+        fileIndexingStatus: true,
+        embeddingStatus: true,
+        embeddingPauseReason: true,
+        totalChunks: true,
+        processedChunks: true,
+        failedChunks: true,
+        pendingChunks: true,
+        lastSuccessfulEmbeddingAt: true,
+        lastAttemptedEmbeddingAt: true,
+        nextRetryAt: true
       }
     });
 
@@ -79,18 +89,21 @@ const getIngestionStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Repository not found' });
     }
 
+    // Always fetch live DB chunk counts to guarantee 100% accuracy across restarts
+    const dbTotalChunks = await prisma.fileChunk.count({
+      where: { repositoryFile: { repositoryId: id } }
+    });
+
+    const dbEmbeddedChunks = await prisma.chunkEmbedding.count({
+      where: { fileChunk: { repositoryFile: { repositoryId: id } } }
+    });
+
+    const dbPendingChunks = Math.max(0, dbTotalChunks - dbEmbeddedChunks);
+
     let detailedProgress = repositoryIngestionService.getProgress(id);
 
     // If no in-memory progress (e.g. after restart or completed), calculate DB-level counts
     if (!detailedProgress) {
-      const totalChunks = await prisma.fileChunk.count({
-        where: { repositoryFile: { repositoryId: id } }
-      });
-
-      const embeddedChunks = await prisma.chunkEmbedding.count({
-        where: { fileChunk: { repositoryFile: { repositoryId: id } } }
-      });
-
       detailedProgress = {
         stage: repo.ingestionStatus === 'COMPLETED' ? 'Repository ready' :
                repo.ingestionStatus === 'INDEXING_COMPLETED' ? 'Files indexed' :
@@ -99,20 +112,29 @@ const getIngestionStatus = async (req, res, next) => {
                repo.ingestionStatus === 'INGESTING' ? 'Processing files' : 'Idle',
         discovered: repo.fileCount || 0,
         processed: repo.fileCount || 0,
-        failed: 0,
+        failed: repo.failedChunks || 0,
         skipped: 0,
         currentFile: '',
-        totalChunks,
-        embeddedChunks
+        totalChunks: dbTotalChunks,
+        embeddedChunks: dbEmbeddedChunks,
+        pendingChunks: dbPendingChunks
       };
+    } else {
+      detailedProgress.totalChunks = dbTotalChunks || detailedProgress.totalChunks;
+      detailedProgress.embeddedChunks = dbEmbeddedChunks || detailedProgress.embeddedChunks;
+      detailedProgress.pendingChunks = dbPendingChunks;
     }
 
     res.json({ 
       success: true, 
       data: {
         ...repo,
+        totalChunks: dbTotalChunks,
+        processedChunks: dbEmbeddedChunks,
+        pendingChunks: dbPendingChunks,
         detailedProgress
       } 
+
     });
   } catch(err) {
     next(err);
