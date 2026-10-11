@@ -30,13 +30,11 @@ const recoverStaleIngestions = async () => {
     });
 
     if (staleRepositories.length === 0) {
-      console.log('[IngestionRecovery] No stale ingestion jobs found.');
-      return;
-    }
+      console.log('[IngestionRecovery] No active in-flight ingestion jobs to recover.');
+    } else {
+      console.log(`[IngestionRecovery] Found ${staleRepositories.length} potentially stale in-flight ingestion jobs.`);
 
-    console.log(`[IngestionRecovery] Found ${staleRepositories.length} potentially stale ingestion jobs.`);
-
-    for (const repo of staleRepositories) {
+      for (const repo of staleRepositories) {
       const fileCount = await prisma.repositoryFile.count({
         where: { repositoryId: repo.id }
       });
@@ -99,8 +97,76 @@ const recoverStaleIngestions = async () => {
         });
       }
     }
+  }
 
-    console.log('[IngestionRecovery] Stale ingestion recovery completed.');
+    // 2. Reconcile persisted status and chunk metrics for all repositories with indexed files
+    const indexedRepos = await prisma.repository.findMany({
+      where: {
+        ingestionStatus: { in: ['INDEXING_COMPLETED', 'QUOTA_BLOCKED', 'EMBEDDING_FAILED', 'COMPLETED'] }
+      },
+      select: {
+        id: true,
+        name: true,
+        ingestionStatus: true,
+        fileIndexingStatus: true,
+        embeddingStatus: true,
+        totalChunks: true,
+        processedChunks: true,
+        pendingChunks: true,
+        embeddingPauseReason: true,
+        nextRetryAt: true
+      }
+    });
+
+    for (const repo of indexedRepos) {
+      const totalChunks = await prisma.fileChunk.count({
+        where: { repositoryFile: { repositoryId: repo.id } }
+      });
+      const processedChunks = await prisma.chunkEmbedding.count({
+        where: { fileChunk: { repositoryFile: { repositoryId: repo.id } } }
+      });
+      const pendingChunks = Math.max(0, totalChunks - processedChunks);
+
+      if (totalChunks > 0 && pendingChunks === 0) {
+        if (repo.ingestionStatus !== 'COMPLETED' || repo.embeddingStatus !== 'COMPLETED') {
+          console.log(`[IngestionRecovery] Reconciling complete repository ${repo.name} (${repo.id}): COMPLETED`);
+          await prisma.repository.update({
+            where: { id: repo.id },
+            data: {
+              ingestionStatus: 'COMPLETED',
+              fileIndexingStatus: 'COMPLETED',
+              embeddingStatus: 'COMPLETED',
+              totalChunks,
+              processedChunks,
+              pendingChunks: 0,
+              embeddingPauseReason: null,
+              lastIngestionError: null,
+              nextRetryAt: null
+            }
+          });
+        }
+      } else if (totalChunks > 0 && pendingChunks > 0) {
+        // Pending chunks remain: ensure status is paused with accurate metrics
+        if (repo.pendingChunks !== pendingChunks || repo.totalChunks !== totalChunks || repo.embeddingStatus !== 'PAUSED') {
+          console.log(`[IngestionRecovery] Reconciling pending repository ${repo.name} (${repo.id}): ${pendingChunks}/${totalChunks} pending`);
+          await prisma.repository.update({
+            where: { id: repo.id },
+            data: {
+              fileIndexingStatus: 'COMPLETED',
+              embeddingStatus: 'PAUSED',
+              ingestionStatus: 'QUOTA_BLOCKED',
+              embeddingPauseReason: repo.embeddingPauseReason || 'QUOTA_EXHAUSTED',
+              totalChunks,
+              processedChunks,
+              pendingChunks,
+              nextRetryAt: repo.nextRetryAt || new Date()
+            }
+          });
+        }
+      }
+    }
+
+    console.log('[IngestionRecovery] Stale ingestion recovery & reconciliation completed.');
   } catch (error) {
     console.error('[IngestionRecovery] Error during recovery operation:', error.message);
   }
@@ -110,6 +176,7 @@ const recoverStaleIngestions = async () => {
  * Periodically checks for paused/eligible embedding jobs and resumes them safely
  */
 let recoverySchedulerTimer = null;
+const activeRecoverySet = new Set();
 
 const checkAndResumeEligibleJobs = async () => {
   try {
@@ -117,9 +184,8 @@ const checkAndResumeEligibleJobs = async () => {
     // Find repositories that are paused due to quota or server restart and whose nextRetryAt has passed
     const eligibleRepos = await prisma.repository.findMany({
       where: {
-        ingestionStatus: { in: ['INDEXING_COMPLETED', 'QUOTA_BLOCKED'] },
-        embeddingStatus: { in: ['PAUSED', 'NOT_STARTED'] },
-        pendingChunks: { gt: 0 },
+        ingestionStatus: { in: ['INDEXING_COMPLETED', 'QUOTA_BLOCKED', 'EMBEDDING_FAILED'] },
+        embeddingStatus: { in: ['PAUSED', 'NOT_STARTED', 'FAILED'] },
         OR: [
           { nextRetryAt: { lte: now } },
           { nextRetryAt: null }
@@ -130,21 +196,66 @@ const checkAndResumeEligibleJobs = async () => {
 
     if (eligibleRepos.length === 0) return;
 
-    const { embedRepositoryChunks } = require('./repositoryIngestionService');
+    const { embedRepositoryChunks, getChunkMetrics } = require('./repositoryIngestionService');
 
     for (const repo of eligibleRepos) {
-      console.log(`[AutoRecovery] Resuming pending embeddings for repository ${repo.name} (${repo.id})...`);
+      if (activeRecoverySet.has(repo.id)) {
+        continue;
+      }
+
+      const { totalChunks, processedChunks, pendingChunks } = await getChunkMetrics(repo.id);
+      
+      if (totalChunks > 0 && pendingChunks === 0) {
+        await prisma.repository.update({
+          where: { id: repo.id },
+          data: {
+            ingestionStatus: 'COMPLETED',
+            fileIndexingStatus: 'COMPLETED',
+            embeddingStatus: 'COMPLETED',
+            totalChunks,
+            processedChunks,
+            pendingChunks: 0,
+            embeddingPauseReason: null,
+            lastIngestionError: null,
+            nextRetryAt: null
+          }
+        });
+        continue;
+      }
+
+      if (pendingChunks === 0) {
+        continue;
+      }
+
+      activeRecoverySet.add(repo.id);
+      console.log(JSON.stringify({
+        tag: '[EMBEDDING_DIAGNOSTIC]',
+        timestamp: new Date().toISOString(),
+        repositoryId: repo.id,
+        repositoryName: repo.name,
+        stage: 'RECOVERY_RESUME',
+        model: process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-2',
+        metrics: { totalChunks, processedChunks, pendingChunks }
+      }));
+
       // Update nextRetryAt forward to prevent concurrent duplicate pickup
       await prisma.repository.update({
         where: { id: repo.id },
         data: {
+          totalChunks,
+          processedChunks,
+          pendingChunks,
           nextRetryAt: new Date(Date.now() + 15 * 60 * 1000)
         }
       });
 
-      embedRepositoryChunks(repo.id).catch(err => {
-        console.warn(`[AutoRecovery] Resumption for ${repo.id} deferred: ${err.message}`);
-      });
+      embedRepositoryChunks(repo.id)
+        .catch(err => {
+          console.warn(`[AutoRecovery] Resumption for ${repo.id} deferred: ${err.message}`);
+        })
+        .finally(() => {
+          activeRecoverySet.delete(repo.id);
+        });
     }
   } catch (err) {
     console.error('[AutoRecovery] Error in checkAndResumeEligibleJobs:', err.message);

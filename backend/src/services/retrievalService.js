@@ -20,24 +20,25 @@ const searchRepository = async (userId, repositoryId, query, topK = 5) => {
     throw new Error('Repository not found or unauthorized');
   }
 
-  // 2. Check if repository has any embeddings available
-  const embeddingCount = await prisma.chunkEmbedding.count({
+  // 2. Check if repository has any embeddings available and identify active vector model
+  const repoSampleEmbedding = await prisma.chunkEmbedding.findFirst({
     where: {
       fileChunk: {
         repositoryFile: {
           repositoryId
         }
       }
-    }
+    },
+    select: { model: true }
   });
 
-  if (embeddingCount === 0) {
+  if (!repoSampleEmbedding) {
     console.log(`[Retrieval] Repository ${repositoryId} has 0 chunk embeddings. Returning empty results.`);
     return [];
   }
 
-  // 3. Generate Query Embedding
-  const queryEmbeddingResult = await generateEmbedding(query);
+  // 3. Generate Query Embedding using the exact matching vector space model
+  const queryEmbeddingResult = await generateEmbedding(query, repoSampleEmbedding.model);
   if (!queryEmbeddingResult || !queryEmbeddingResult.vector) {
     throw new Error('Failed to generate query embedding');
   }

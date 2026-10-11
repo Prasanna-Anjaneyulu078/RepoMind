@@ -33,8 +33,20 @@ class GeminiService {
   }
 
   classifyError(error) {
-    const status = error.status || error.code || error.error?.code;
-    const msg = (error.message || '').toLowerCase();
+    let status = error.status || error.code || error.error?.code;
+    let msg = (error.message || '').toLowerCase();
+    
+    if (typeof error.message === 'string' && error.message.includes('"code":')) {
+      try {
+        const parsed = JSON.parse(error.message);
+        if (parsed.error) {
+          status = parsed.error.code || status;
+          msg = `${msg} ${parsed.error.message || ''} ${parsed.error.status || ''}`.toLowerCase();
+        }
+      } catch (e) {
+        // ignore JSON parse error
+      }
+    }
     
     if (status === 401 || status === 403 || msg.includes('api key') || msg.includes('permission') || msg.includes('unauthenticated')) {
       return 'AUTH_ERROR';
@@ -42,15 +54,18 @@ class GeminiService {
     if (status === 404 || msg.includes('not found') || msg.includes('is not supported')) {
       return 'MODEL_NOT_FOUND';
     }
-    if (status === 429) {
+    if (status === 429 || msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('rate-limit')) {
       if (msg.includes('billing') || msg.includes('plan') || msg.includes('credit')) {
         return 'BILLING_LIMIT';
+      }
+      // Standard burst / RPM rate limit
+      if (msg.includes('per minute') || msg.includes('rpm') || msg.includes('rate limit') || msg.includes('rate-limit')) {
+        return 'RATE_LIMIT';
       }
       // True hard quota exhaustion: daily quota or zero limit
       if (msg.includes('per day') || msg.includes('daily') || msg.includes('limit: 0') || msg.includes('resource_exhausted')) {
         return 'QUOTA_EXHAUSTED';
       }
-      // Standard burst/RPM rate limit
       return 'RATE_LIMIT';
     }
     if (status === 500 || status === 503 || status === 504) {
@@ -138,8 +153,9 @@ class GeminiService {
   }
 
 
-  async embedContent(texts, outputDimensionality) {
-    const models = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels].filter(Boolean);
+  async embedContent(texts, outputDimensionality, preferredModel = null) {
+    const defaultModels = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels].filter(Boolean);
+    const models = preferredModel ? [preferredModel, ...defaultModels.filter(m => m !== preferredModel)] : defaultModels;
     const isArray = Array.isArray(texts);
     const items = isArray ? texts : [texts];
 

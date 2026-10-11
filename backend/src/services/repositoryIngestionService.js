@@ -245,7 +245,8 @@ const embedRepositoryChunks = async (repositoryId) => {
   try {
     // Find chunks that don't have embeddings yet
     const chunksWithoutEmbeddings = await prisma.$queryRaw`
-      SELECT c.* FROM "FileChunk" c
+      SELECT c.id, c.content, c."contentHash", c."chunkIndex", c."startLine", c."endLine", c."repositoryFileId" 
+      FROM "FileChunk" c
       JOIN "RepositoryFile" f ON c."repositoryFileId" = f.id
       LEFT JOIN "ChunkEmbedding" e ON c.id = e."fileChunkId"
       WHERE f."repositoryId" = ${repositoryId} AND e.id IS NULL
@@ -259,7 +260,7 @@ const embedRepositoryChunks = async (repositoryId) => {
     }
 
     if (chunksWithoutEmbeddings.length > 0) {
-      await embeddingService.embedChunks(chunksWithoutEmbeddings, async (embeddedCount) => {
+      const stats = await embeddingService.embedChunks(repositoryId, chunksWithoutEmbeddings, async (embeddedCount) => {
          if (progress) progress.embeddedChunks += embeddedCount;
          
          // Periodically update persisted embedding counts in DB
@@ -277,6 +278,16 @@ const embedRepositoryChunks = async (repositoryId) => {
            // non-blocking metric sync
          }
       });
+
+      console.log(JSON.stringify({
+        tag: '[EMBEDDING_OPTIMIZATION_METRICS]',
+        timestamp: new Date().toISOString(),
+        repositoryId,
+        totalChunksExamined: stats.total,
+        reusedEmbeddings: stats.reused,
+        newlyEmbedded: stats.newlyEmbedded,
+        tokensEstimated: stats.tokens
+      }));
     }
     
     const finalMetrics = await getChunkMetrics(repositoryId);
@@ -287,7 +298,18 @@ const embedRepositoryChunks = async (repositoryId) => {
       progress.totalChunks = finalMetrics.totalChunks;
     }
     
-    console.log(`[Indexing] Embedding completed in ${((Date.now() - startEmbeddingTime)/1000).toFixed(1)}s`);
+    console.log(JSON.stringify({
+      tag: '[EMBEDDING_DIAGNOSTIC]',
+      timestamp: new Date().toISOString(),
+      repositoryId,
+      stage: 'COMPLETED',
+      model: process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-2',
+      metrics: {
+        totalChunks: finalMetrics.totalChunks,
+        processedChunks: finalMetrics.processedChunks,
+        pendingChunks: 0
+      }
+    }));
     
     // Check if another job transitioned state
     const repoCheck = await prisma.repository.findUnique({ where: { id: repositoryId } });
@@ -305,9 +327,18 @@ const embedRepositoryChunks = async (repositoryId) => {
     const errorMetrics = await getChunkMetrics(repositoryId);
     const pauseReason = err.pauseReason || (err.isQuotaExhausted ? 'QUOTA_EXHAUSTED' : err.isRateLimited ? 'RATE_LIMIT' : 'SERVICE_UNAVAILABLE');
     
+    console.warn(JSON.stringify({
+      tag: '[EMBEDDING_DIAGNOSTIC]',
+      timestamp: new Date().toISOString(),
+      repositoryId,
+      stage: 'PAUSED',
+      model: process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-2',
+      errorCategory: pauseReason,
+      message: err.message ? err.message.slice(0, 150) : 'Error',
+      metrics: errorMetrics
+    }));
+    
     if (err.isQuotaExhausted || err.isRateLimited || err.pauseReason === 'QUOTA_EXHAUSTED' || err.pauseReason === 'BILLING_LIMIT') {
-      console.warn(`[Indexing] Embedding paused (${pauseReason}): ${err.message}`);
-      
       const retryDelayMs = pauseReason === 'RATE_LIMIT' ? 2 * 60 * 1000 : 30 * 60 * 1000;
       await updateIngestionStatus(repositoryId, 'QUOTA_BLOCKED', err, undefined, undefined, {
         totalChunks: errorMetrics.totalChunks,
@@ -492,10 +523,18 @@ const ingestRepository = async (token, repositoryId, userId) => {
           const filename = file.path.split('/').pop();
           const language = fileFilterService.getFileLanguage(ext, filename);
           
-          const chunks = chunkingService.chunkContent(normalizedContent).map(c => ({
-            ...c,
-            id: crypto.randomUUID()
-          }));
+          // Tier 2 Filter: Check if file is eligible for AI code chunking & embeddings
+          const embedCheck = fileFilterService.isEmbeddableFile(file.path, normalizedContent, file.size);
+          let chunks = [];
+
+          if (embedCheck.eligible) {
+            chunks = chunkingService.chunkContent(normalizedContent).map(c => ({
+              ...c,
+              id: crypto.randomUUID()
+            }));
+          } else {
+            console.log(`[Filtering] File ${file.path} excluded from embeddings (${embedCheck.reason}). Preserved in Code Explorer.`);
+          }
 
           batchResults.push({
             file,
@@ -535,9 +574,6 @@ const ingestRepository = async (token, repositoryId, userId) => {
                   where: { id: item.existing.id },
                   data: item.data
                 });
-                await tx.fileChunk.deleteMany({
-                  where: { repositoryFileId: repFileId }
-                });
               } else {
                 const upsertedFile = await tx.repositoryFile.upsert({
                   where: {
@@ -550,21 +586,54 @@ const ingestRepository = async (token, repositoryId, userId) => {
                   create: item.data
                 });
                 repFileId = upsertedFile.id;
-                await tx.fileChunk.deleteMany({
-                  where: { repositoryFileId: repFileId }
-                });
               }
 
-              if (item.chunks.length > 0) {
-                await tx.fileChunk.createMany({
-                  data: item.chunks.map(c => ({
+              // Incremental chunk update: preserve chunks with matching contentHash & index
+              const existingChunks = await tx.fileChunk.findMany({
+                where: { repositoryFileId: repFileId },
+                select: { id: true, chunkIndex: true, contentHash: true }
+              });
+
+              const existingHashIndexMap = new Map();
+              existingChunks.forEach(c => {
+                existingHashIndexMap.set(`${c.chunkIndex}:${c.contentHash}`, c.id);
+              });
+
+              const chunksToInsert = [];
+              const keptChunkIds = new Set();
+
+              for (const c of item.chunks) {
+                const key = `${c.chunkIndex}:${c.contentHash}`;
+                if (existingHashIndexMap.has(key)) {
+                  // Unchanged chunk in incremental sync! Retain existing chunk and vector.
+                  keptChunkIds.add(existingHashIndexMap.get(key));
+                } else {
+                  chunksToInsert.push({
                     id: c.id,
                     repositoryFileId: repFileId,
                     chunkIndex: c.chunkIndex,
                     content: c.content,
+                    contentHash: c.contentHash || null,
                     startLine: c.startLine,
                     endLine: c.endLine
-                  }))
+                  });
+                }
+              }
+
+              // Delete only obsolete or changed chunk records
+              const staleChunkIds = existingChunks
+                .filter(c => !keptChunkIds.has(c.id))
+                .map(c => c.id);
+
+              if (staleChunkIds.length > 0) {
+                await tx.fileChunk.deleteMany({
+                  where: { id: { in: staleChunkIds } }
+                });
+              }
+
+              if (chunksToInsert.length > 0) {
+                await tx.fileChunk.createMany({
+                  data: chunksToInsert
                 });
               }
             }, {
@@ -636,5 +705,6 @@ module.exports = {
   ingestRepository,
   embedRepositoryChunks,
   updateIngestionStatus,
+  getChunkMetrics,
   getProgress
 };

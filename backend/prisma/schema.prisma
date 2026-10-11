@@ -108,6 +108,7 @@ model FileChunk {
   repositoryFileId String
   chunkIndex       Int
   content          String
+  contentHash      String?
   startLine        Int
   endLine          Int
   createdAt        DateTime       @default(now())
@@ -117,6 +118,7 @@ model FileChunk {
   embeddings       ChunkEmbedding[]
 
   @@index([repositoryFileId])
+  @@index([contentHash])
 }
 
 model ChunkEmbedding {
@@ -124,6 +126,7 @@ model ChunkEmbedding {
   fileChunkId String
   model       String
   dimension   Int
+  contentHash String?
   embedding   Unsupported("vector(768)")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -132,6 +135,7 @@ model ChunkEmbedding {
 
   @@unique([fileChunkId, model])
   @@index([fileChunkId])
+  @@index([contentHash, model])
 }
 
 model Conversation {
@@ -200,4 +204,3 @@ model RepositoryOnboarding {
 
   @@index([repositoryId])
 }
-
