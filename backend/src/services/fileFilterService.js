@@ -15,7 +15,8 @@ const EXCLUDED_EXTENSIONS = new Set([
   '.mv.db', '.trace.db', '.db', '.sqlite', '.sqlite3', '.bin', '.dat', '.exe', '.dll', '.so', '.dylib', '.jar', '.war',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf', '.zip', '.tar', 
   '.gz', '.7z', '.rar', '.mp4', '.mp3', '.wav', '.mov', '.avi', '.mkv', '.woff', '.woff2', '.ttf', '.otf', '.bmp', '.ico',
-  '.pem', '.key'
+  '.pem', '.key', '.h5', '.hdf5', '.pkl', '.pickle', '.onnx', '.pt', '.pth', '.tflite', '.weights', '.npy', '.npz', '.parquet', '.arrow',
+  '.pyc', '.pyd', '.class', '.o', '.obj'
 ]);
 
 // Determine language from extension or filename

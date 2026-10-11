@@ -33,28 +33,32 @@ class GeminiService {
   }
 
   classifyError(error) {
-    const status = error.status;
+    const status = error.status || error.code || error.error?.code;
     const msg = (error.message || '').toLowerCase();
     
-    if (status === 429) {
-      if (msg.includes('per day') || msg.includes('daily') || msg.includes('quota')) {
-        return 'QUOTA_EXHAUSTED';
-      }
-      return 'RATE_LIMIT';
-    }
-    if (status === 400 && msg.includes('not found')) {
-      return 'MODEL_NOT_FOUND';
-    }
-    if (status === 403 || status === 401 || msg.includes('api key') || msg.includes('permission')) {
+    if (status === 401 || status === 403 || msg.includes('api key') || msg.includes('permission') || msg.includes('unauthenticated')) {
       return 'AUTH_ERROR';
     }
-    if (status === 500 || status === 503) {
+    if (status === 404 || msg.includes('not found') || msg.includes('is not supported')) {
+      return 'MODEL_NOT_FOUND';
+    }
+    if (status === 429) {
+      // True hard quota exhaustion: daily quota or billing limits
+      if (msg.includes('per day') || msg.includes('daily') || msg.includes('billing') || msg.includes('limit: 0')) {
+        return 'QUOTA_EXHAUSTED';
+      }
+      // Standard 429 (burst/RPM)
+      return 'RATE_LIMIT';
+    }
+    if (status === 500 || status === 503 || status === 504) {
       return 'SERVICE_UNAVAILABLE';
     }
     return 'UNKNOWN_ERROR';
   }
 
   async executeWithFallback(models, operationName, operationFn) {
+    let lastError = null;
+
     for (let i = 0; i < models.length; i++) {
       const model = models[i];
       
@@ -68,62 +72,105 @@ class GeminiService {
       
       while (attempt < maxAttempts) {
         try {
-          console.log(`[GeminiService] Executing ${operationName} with model ${model} (Attempt ${attempt + 1})`);
           const result = await operationFn(model);
           return { result, model };
         } catch (error) {
+          lastError = error;
           const errorType = this.classifyError(error);
-          console.warn(`[GeminiService] Error during ${operationName} with model ${model}: ${errorType} - ${error.message}`);
+          console.warn(`[GeminiService] ${operationName} with model ${model} failed (attempt ${attempt + 1}/${maxAttempts}): [${errorType}] ${error.message}`);
           
-          if (errorType === 'QUOTA_EXHAUSTED' || errorType === 'MODEL_NOT_FOUND' || errorType === 'SERVICE_UNAVAILABLE') {
+          if (errorType === 'AUTH_ERROR') {
+            // Configuration / authentication problem - do not rotate or retry endlessly
+            const authErr = new Error(`Gemini authentication failure: ${error.message}`);
+            authErr.status = 401;
+            authErr.isAuthError = true;
+            throw authErr;
+          }
+
+          if (errorType === 'MODEL_NOT_FOUND') {
             this.setCooldown(model);
             break; // Try next model
-          } else if (errorType === 'RATE_LIMIT') {
+          }
+
+          if (errorType === 'QUOTA_EXHAUSTED') {
+            this.setCooldown(model);
+            break; // Try next model
+          }
+
+          if (errorType === 'RATE_LIMIT' || errorType === 'SERVICE_UNAVAILABLE') {
             attempt++;
             if (attempt >= maxAttempts) {
               this.setCooldown(model);
-              break; // Try next model
+              break; // Retries exhausted for this model, try next
             }
+
+            // Exponential backoff with jitter
             const retryAfter = error.response?.headers?.['retry-after'];
-            const delay = retryAfter ? parseInt(retryAfter) * 1000 : (2000 * Math.pow(2, attempt) + Math.random() * 1000);
-            console.log(`[GeminiService] Rate limited. Waiting ${Math.round(delay)}ms...`);
+            const baseDelay = retryAfter ? parseInt(retryAfter, 10) * 1000 : (1500 * Math.pow(2, attempt));
+            const jitter = Math.floor(Math.random() * 800);
+            const delay = Math.min(baseDelay + jitter, 15000);
+
+            console.log(`[GeminiService] Rate limit or transient error. Backing off ${Math.round(delay)}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
-          } else if (errorType === 'AUTH_ERROR') {
-            throw error;
           } else {
-            throw error;
+            // Unknown error, try next attempt or fail
+            attempt++;
+            if (attempt >= maxAttempts) {
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
           }
         }
       }
     }
     
-    const err = new Error(`All configured models for ${operationName} failed or are exhausted.`);
+    const err = new Error(`All configured models for ${operationName} failed or are exhausted: ${lastError ? lastError.message : 'Unknown error'}`);
     err.isQuotaExhausted = true;
+    err.originalError = lastError;
     throw err;
   }
 
   async embedContent(texts, outputDimensionality) {
-    const models = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels];
-    const { result, model } = await this.executeWithFallback(models, 'embedContent', async (mdl) => {
-      const isArray = Array.isArray(texts);
-      const items = isArray ? texts : [texts];
-      
-      const promises = items.map(async text => {
-        const response = await this.ai.models.embedContent({
-          model: mdl,
-          contents: text,
-          config: { outputDimensionality }
-        });
-        if (!response.embeddings || response.embeddings.length === 0) {
-          throw new Error('No embeddings returned by Gemini API');
-        }
-        return response.embeddings[0];
-      });
+    const models = [this.primaryEmbeddingModel, ...this.fallbackEmbeddingModels].filter(Boolean);
+    const isArray = Array.isArray(texts);
+    const items = isArray ? texts : [texts];
 
-      const results = await Promise.all(promises);
-      return isArray ? results : results;
+    const { result, model } = await this.executeWithFallback(models, 'embedContent', async (mdl) => {
+      // Bounded concurrency execution to avoid triggering burst RPM limits
+      const CONCURRENCY = 2;
+      const results = new Array(items.length);
+      let index = 0;
+
+      const worker = async () => {
+        while (index < items.length) {
+          const currentIndex = index++;
+          const text = items[currentIndex];
+
+          const response = await this.ai.models.embedContent({
+            model: mdl,
+            contents: text,
+            config: { outputDimensionality }
+          });
+
+          if (!response.embeddings || response.embeddings.length === 0) {
+            throw new Error('No embeddings returned by Gemini API');
+          }
+          results[currentIndex] = response.embeddings[0];
+
+          // Small 50ms pacing delay between items
+          if (items.length > 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker());
+      await Promise.all(workers);
+
+      return isArray ? results : results[0];
     });
-    return { embeddings: result, model };
+
+    return { embeddings: isArray ? result : [result], model };
   }
 
   async generateContent(options, role = 'analysis') {

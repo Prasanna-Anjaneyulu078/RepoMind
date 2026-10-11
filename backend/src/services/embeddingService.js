@@ -151,6 +151,8 @@ const embedChunk = async (chunkId, content) => {
     throw new Error(`Invalid embedding vector dimension. Expected ${EMBEDDING_DIMENSION}`);
   }
 
+  const vectorSql = `[${vector.join(',')}]`;
+
   await prisma.$executeRaw`
     INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
     VALUES (
@@ -158,7 +160,7 @@ const embedChunk = async (chunkId, content) => {
       ${chunkId},
       ${model},
       ${EMBEDDING_DIMENSION},
-      ${vector}::vector,
+      ${vectorSql}::vector,
       NOW()
     )
     ON CONFLICT ("fileChunkId", model)
@@ -170,65 +172,51 @@ const embedChunk = async (chunkId, content) => {
  * Embed an array of chunks in batches and persist to pgvector
  */
 const embedChunks = async (chunks, onProgress) => {
-  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '100', 10);
-  const CONCURRENCY = parseInt(process.env.EMBEDDING_CONCURRENCY || '1', 10);
+  const BATCH_SIZE = parseInt(process.env.EMBEDDING_BATCH_SIZE || '10', 10);
   
   const batches = [];
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     batches.push(chunks.slice(i, i + BATCH_SIZE));
   }
   
-  const asyncPool = async (poolLimit, array, iteratorFn) => {
-    const ret = [];
-    const executing = [];
-    for (const item of array) {
-      const p = Promise.resolve().then(() => iteratorFn(item));
-      ret.push(p);
-      if (poolLimit <= array.length) {
-        const e = p.then(() => executing.splice(executing.indexOf(e), 1));
-        executing.push(e);
-        if (executing.length >= poolLimit) {
-          await Promise.race(executing);
-        }
-      }
-    }
-    return Promise.all(ret);
-  };
-
-  await asyncPool(CONCURRENCY, batches, async (batch) => {
+  for (const batch of batches) {
     const texts = batch.map(c => c.content);
     
-    // This will throw if rate limit is hit and retries are exhausted.
-    // That's acceptable; the caller will catch it, stop processing, 
-    // and the system can resume later since we process in batches.
+    // Generate embeddings for the micro-batch
     const { vectors, model } = await generateBatchEmbeddings(texts);
     
-    await prisma.$transaction(
-      batch.map((chunk, idx) => {
-        const vector = vectors[idx];
-        if (!vector) {
-          throw new Error(`Missing embedding vector for chunk ${chunk.id}`);
-        }
-        return prisma.$executeRaw`
-          INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
-          VALUES (
-            gen_random_uuid(),
-            ${chunk.id},
-            ${model},
-            ${EMBEDDING_DIMENSION},
-            ${vector}::vector,
-            NOW()
-          )
-          ON CONFLICT ("fileChunkId", model)
-          DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
-        `;
-      })
-    );
+    // Persist individually outside long-lived interactive transactions
+    // This avoids connection pool starvation on Neon pooler and makes progress granularly resumable
+    for (let idx = 0; idx < batch.length; idx++) {
+      const chunk = batch[idx];
+      const vector = vectors[idx];
+      if (!vector) {
+        throw new Error(`Missing embedding vector for chunk ${chunk.id}`);
+      }
+      const vectorSql = `[${vector.join(',')}]`;
+
+      await prisma.$executeRaw`
+        INSERT INTO "ChunkEmbedding" (id, "fileChunkId", model, dimension, embedding, "updatedAt")
+        VALUES (
+          gen_random_uuid(),
+          ${chunk.id},
+          ${model},
+          ${EMBEDDING_DIMENSION},
+          ${vectorSql}::vector,
+          NOW()
+        )
+        ON CONFLICT ("fileChunkId", model)
+        DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = NOW()
+      `;
+    }
     
     if (onProgress) {
       onProgress(batch.length);
     }
-  });
+
+    // Pacing delay between batches to stay comfortably within rate limits
+    await delay(100);
+  }
 };
 
 module.exports = {

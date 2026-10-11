@@ -22,6 +22,36 @@ const getLatestCommitSha = async (token, owner, repo, branch) => {
   return response.data.sha;
 };
 
+const sanitizeErrorMessage = (error) => {
+  if (!error) return null;
+  const msg = typeof error === 'string' ? error : (error.message || String(error));
+  
+  if (msg.includes('401') || msg.includes('Bad credentials')) {
+    return 'GitHub authentication expired or unauthorized. Please reconnect your GitHub account.';
+  }
+  if (msg.includes('403') && (msg.includes('rate limit') || msg.includes('API rate limit'))) {
+    return 'GitHub API rate limit reached. Please try again in a few minutes.';
+  }
+  if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
+    return 'AI embedding quota limit reached. Files are indexed and accessible; semantic search indexing is paused.';
+  }
+  if (msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
+    return 'Network connection issue while communicating with external services.';
+  }
+  if (msg.startsWith('{') && msg.includes('"error"')) {
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed.error?.message) {
+        return sanitizeErrorMessage(parsed.error.message);
+      }
+    } catch {
+      // ignore JSON parse error
+    }
+  }
+  // Strip potential keys or raw tokens
+  return msg.replace(/[A-Za-z0-9_\-]{20,}/g, '[REDACTED]').slice(0, 300);
+};
+
 const updateIngestionStatus = async (repositoryId, status, error = null, fileCount = undefined, latestCommitSha = undefined) => {
   const data = { ingestionStatus: status };
   if (status === 'INGESTING') {
@@ -31,7 +61,9 @@ const updateIngestionStatus = async (repositoryId, status, error = null, fileCou
     data.ingestionCompletedAt = new Date();
   }
   if (error) {
-    data.lastIngestionError = error.message || String(error);
+    data.lastIngestionError = sanitizeErrorMessage(error);
+  } else if (status === 'COMPLETED' || status === 'INDEXING_COMPLETED') {
+    data.lastIngestionError = null;
   }
   if (fileCount !== undefined) {
     data.fileCount = fileCount;
@@ -236,10 +268,34 @@ const ingestRepository = async (token, repositoryId, userId) => {
     const discoveryStart = Date.now();
     const latestCommitSha = await getLatestCommitSha(token, repo.owner, repo.name, repo.defaultBranch);
     
-    if (repo.latestCommitSha === latestCommitSha && repo.ingestionStatus === 'COMPLETED') {
-      console.log(`[Indexing] Repository already up to date. (SHA: ${latestCommitSha})`);
-      await updateIngestionStatus(repositoryId, 'COMPLETED');
-      return;
+    // Check if repository files are already up-to-date and persisted
+    if (repo.latestCommitSha === latestCommitSha) {
+      const existingFilesCount = await prisma.repositoryFile.count({ where: { repositoryId } });
+      if (existingFilesCount > 0) {
+        console.log(`[Indexing] Repository files already up-to-date (SHA: ${latestCommitSha}). Checking chunk embeddings...`);
+        
+        const pendingChunks = await prisma.$queryRaw`
+          SELECT c.id FROM "FileChunk" c
+          JOIN "RepositoryFile" f ON c."repositoryFileId" = f.id
+          LEFT JOIN "ChunkEmbedding" e ON c.id = e."fileChunkId"
+          WHERE f."repositoryId" = ${repositoryId} AND e.id IS NULL
+          LIMIT 1
+        `;
+
+        if (pendingChunks.length === 0) {
+          console.log(`[Indexing] All chunks already embedded. Marking COMPLETED.`);
+          await updateIngestionStatus(repositoryId, 'COMPLETED', null, existingFilesCount, latestCommitSha);
+          return;
+        }
+
+        // Resume embeddings in background without re-downloading files
+        console.log(`[Indexing] Resuming embeddings for existing files...`);
+        await updateIngestionStatus(repositoryId, 'INDEXING_COMPLETED', null, existingFilesCount, latestCommitSha);
+        embedRepositoryChunks(repositoryId).catch(err => {
+          console.error('Background embedding resumption failed:', err);
+        });
+        return;
+      }
     }
 
     const tree = await getRepositoryTree(token, repo.owner, repo.name, repo.defaultBranch);
@@ -368,53 +424,66 @@ const ingestRepository = async (token, repositoryId, userId) => {
       });
 
       if (batchResults.length > 0) {
-        const dbStart = Date.now();
-        await prisma.$transaction(async (tx) => {
-          for (const item of batchResults) {
-            let repFileId;
-
-            if (item.existing) {
-              await tx.repositoryFile.update({
-                where: { id: item.existing.id },
-                data: item.data
-              });
-              repFileId = item.existing.id;
-              await tx.fileChunk.deleteMany({
-                where: { repositoryFileId: repFileId }
-              });
-            } else {
-              const newFile = await tx.repositoryFile.create({
-                data: item.data
-              });
-              repFileId = newFile.id;
-            }
-
-            if (item.chunks.length > 0) {
-              await tx.fileChunk.createMany({
-                data: item.chunks.map(c => ({
-                  id: c.id,
-                  repositoryFileId: repFileId,
-                  chunkIndex: c.chunkIndex,
-                  content: c.content,
-                  startLine: c.startLine,
-                  endLine: c.endLine
-                }))
-              });
-            }
-          }
-        }, {
-          maxWait: 10000, // 10 seconds max wait to acquire a connection
-          timeout: 30000  // 30 seconds max execution time
-        });
-
         for (const item of batchResults) {
-          item.file.status = 'PROCESSED';
-          if (progress) {
-            progress.processed++;
-            progress.totalChunks += item.chunks.length;
+          try {
+            await prisma.$transaction(async (tx) => {
+              let repFileId = item.existing?.id;
+
+              if (item.existing) {
+                await tx.repositoryFile.update({
+                  where: { id: item.existing.id },
+                  data: item.data
+                });
+                await tx.fileChunk.deleteMany({
+                  where: { repositoryFileId: repFileId }
+                });
+              } else {
+                const upsertedFile = await tx.repositoryFile.upsert({
+                  where: {
+                    repositoryId_path: {
+                      repositoryId: item.data.repositoryId,
+                      path: item.data.path
+                    }
+                  },
+                  update: item.data,
+                  create: item.data
+                });
+                repFileId = upsertedFile.id;
+                await tx.fileChunk.deleteMany({
+                  where: { repositoryFileId: repFileId }
+                });
+              }
+
+              if (item.chunks.length > 0) {
+                await tx.fileChunk.createMany({
+                  data: item.chunks.map(c => ({
+                    id: c.id,
+                    repositoryFileId: repFileId,
+                    chunkIndex: c.chunkIndex,
+                    content: c.content,
+                    startLine: c.startLine,
+                    endLine: c.endLine
+                  }))
+                });
+              }
+            }, {
+              maxWait: 5000,
+              timeout: 10000
+            });
+
+            item.file.status = 'PROCESSED';
+            if (progress) {
+              progress.processed++;
+              progress.totalChunks += item.chunks.length;
+            }
+            totalProcessed++;
+            totalChunksGenerated += item.chunks.length;
+          } catch (dbErr) {
+            console.error(`Failed to persist file ${item.file.path} to DB:`, dbErr.message);
+            item.file.status = 'FAILED';
+            item.file.error = dbErr.message;
+            if (progress) progress.failed++;
           }
-          totalProcessed++;
-          totalChunksGenerated += item.chunks.length;
         }
       }
     }

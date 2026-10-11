@@ -58,13 +58,12 @@ const askInConversation = async (req, res, next) => {
       where: { id: conversation.repositoryId }
     });
 
-    if (repository && (repository.ingestionStatus === 'QUEUED' || repository.ingestionStatus === 'INGESTING' || repository.ingestionStatus === 'INDEXING_COMPLETED')) {
-      return res.status(409).json({ success: false, message: 'This repository is still being indexed. Please try again shortly.', code: 'REPOSITORY_NOT_READY' });
+    if (repository && (repository.ingestionStatus === 'QUEUED' || repository.ingestionStatus === 'INGESTING')) {
+      return res.status(409).json({ success: false, message: 'This repository is currently reading files. Please try again in a few moments once file discovery is complete.', code: 'REPOSITORY_NOT_READY' });
     }
 
     // 2. Fetch recent conversation context (last 10 messages)
     const history = conversation.messages.slice(-10);
-
 
     // 3. Persist User Question (Prevent duplicate if retrying)
     const lastMessage = history.length > 0 ? history[history.length - 1] : null;
@@ -87,8 +86,10 @@ const askInConversation = async (req, res, next) => {
     );
     console.log(`[AskRepo] conversationId=${conversationId} stage=GEMINI_COMPLETED`);
 
-    if (repository && repository.ingestionStatus === 'EMBEDDING') {
-      result.answer = "AI indexing is still in progress. Some repository context may not be available yet.\n\n" + result.answer;
+    if (repository && (repository.ingestionStatus === 'EMBEDDING' || repository.ingestionStatus === 'INDEXING_COMPLETED' || repository.ingestionStatus === 'QUOTA_BLOCKED')) {
+      if (result.sources && result.sources.length === 0) {
+        result.answer = "AI semantic search is currently being prepared for this repository. In the meantime, you can browse all files directly in Code Explorer.\n\n" + result.answer;
+      }
     }
 
     // 5. Persist Assistant Answer

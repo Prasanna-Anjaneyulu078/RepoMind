@@ -264,7 +264,7 @@ const CodeExplorer = ({ activeRepo }) => {
   }
 
   const renderFileContent = () => {
-    if (!['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus)) {
+    if (tree.length === 0 && !['COMPLETED', 'INDEXING_COMPLETED', 'EMBEDDING', 'EMBEDDING_FAILED', 'QUOTA_BLOCKED'].includes(repoStatus)) {
       return (
         <div style={{ padding: '48px', color: 'var(--on-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', maxWidth: '600px', margin: '0 auto' }}>
           
