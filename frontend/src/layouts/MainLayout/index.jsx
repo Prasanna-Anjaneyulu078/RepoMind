@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { fetchApi } from '../../utils/apiClient.js';
 import Sidebar from '../../components/Sidebar/index.jsx';
 import Header from '../../components/Header/index.jsx';
@@ -18,6 +18,7 @@ const MainLayout = ({
   onRefreshRepositories
 }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const navigate = useNavigate();
 
   const handleSync = async () => {
     if (!activeRepo || !activeRepo.id) return;
@@ -71,7 +72,7 @@ const MainLayout = ({
         <Header
           activeRepo={activeRepo}
           onSync={handleSync}
-          onOpenAskModal={() => setIsCommandPaletteOpen(true)}
+          onOpenAskModal={() => navigate('/ask-repo')}
           onToggleMobileNav={() => setMobileNavOpen(!mobileNavOpen)}
         />
 

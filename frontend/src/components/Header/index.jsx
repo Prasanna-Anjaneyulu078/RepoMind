@@ -52,7 +52,13 @@ const Header = ({ activeRepo, onSync, onOpenAskModal, onToggleMobileNav }) => {
         <button
           type="button"
           className="btn-header-ask"
-          onClick={onOpenAskModal}
+          onClick={() => {
+            if (onOpenAskModal) {
+              onOpenAskModal();
+            } else {
+              navigate('/ask-repo');
+            }
+          }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
             auto_awesome
