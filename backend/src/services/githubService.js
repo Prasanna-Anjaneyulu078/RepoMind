@@ -64,8 +64,9 @@ const getAuthenticatedUser = async (token) => {
 };
 
 const getRepositories = async (token, page = 1, perPage = 20) => {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const response = await axios.get(`${GITHUB_API_URL}/user/repos`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
     params: {
       sort: 'updated',
       direction: 'desc',
@@ -77,15 +78,17 @@ const getRepositories = async (token, page = 1, perPage = 20) => {
 };
 
 const getRepositoryById = async (token, githubRepositoryId) => {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const response = await axios.get(`${GITHUB_API_URL}/repositories/${githubRepositoryId}`, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers
   });
   return response.data;
 };
 
 const getRepositoryByFullName = async (token, owner, repo) => {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const response = await axios.get(`${GITHUB_API_URL}/repos/${owner}/${repo}`, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers
   });
   return response.data;
 };

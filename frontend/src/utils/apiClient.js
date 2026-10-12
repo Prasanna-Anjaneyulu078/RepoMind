@@ -67,7 +67,8 @@ export const normalizeApiError = (status, data, method = 'GET') => {
 
   // Hide Prisma / stack traces for 500 errors but keep safe backend messages if possible
   if (status >= 500) {
-    if (backendMessage && (backendMessage.includes('GitHub') || backendMessage.includes('temporarily'))) {
+    const isInternalTrace = backendMessage && (backendMessage.includes('Prisma') || backendMessage.includes('SELECT ') || backendMessage.includes('INSERT ') || backendMessage.includes('UPDATE ') || backendMessage.includes('at Module.'));
+    if (backendMessage && !isInternalTrace) {
        normalized.message = backendMessage;
     } else {
        normalized.message = 'Something went wrong on the server. Please try again.';

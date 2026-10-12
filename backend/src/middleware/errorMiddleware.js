@@ -28,10 +28,22 @@ const errorMiddleware = (err, req, res, next) => {
     }
   }
 
-  // Generic fallback
-  res.status(500).json({
+  // Preserve status code and message from custom errors or upstream axios responses
+  let statusCode = err.status || err.statusCode;
+  let message = err.message || 'Something went wrong';
+
+  if (err.response) {
+    statusCode = err.response.status || statusCode;
+    if (err.response.data?.message) {
+      message = err.response.data.message;
+    }
+  }
+
+  statusCode = statusCode && statusCode >= 400 && statusCode <= 599 ? statusCode : 500;
+
+  res.status(statusCode).json({
     success: false,
-    message: 'Something went wrong'
+    message
   });
 };
 

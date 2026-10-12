@@ -84,8 +84,8 @@ const connectRepository = async (req, res, next) => {
     });
 
     if (existingRepo) {
-      // If the repository is already connected and was FAILED or NOT_INGESTED, trigger fresh ingestion
-      if (['NOT_INGESTED', 'FAILED'].includes(existingRepo.ingestionStatus)) {
+      // If the repository is already connected and was FAILED, EMBEDDING_FAILED, or NOT_INGESTED, trigger fresh ingestion
+      if (['NOT_INGESTED', 'FAILED', 'EMBEDDING_FAILED'].includes(existingRepo.ingestionStatus)) {
         await prisma.repository.update({
           where: { id: existingRepo.id },
           data: { ingestionStatus: 'QUEUED', ingestionStartedAt: new Date(), lastIngestionError: null }
@@ -114,8 +114,29 @@ const connectRepository = async (req, res, next) => {
 
     res.json({ success: true, data: repo });
   } catch (err) {
-    if (err.response && err.response.status === 404) {
-      return res.status(404).json({ success: false, message: 'Repository not found or inaccessible on GitHub' });
+    if (err.response) {
+      if (err.response.status === 404) {
+        return res.status(404).json({ success: false, message: 'Repository not found or inaccessible on GitHub' });
+      }
+      if (err.response.status === 401) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'GitHub access token is invalid or expired. Please sign out and reconnect your GitHub account.' 
+        });
+      }
+      if (err.response.status === 403) {
+        const remaining = err.response.headers?.['x-ratelimit-remaining'];
+        if (remaining === '0') {
+          return res.status(429).json({ 
+            success: false, 
+            message: 'GitHub API rate limit exceeded. Please wait a short while before trying again.' 
+          });
+        }
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Access to this repository was denied by GitHub.' 
+        });
+      }
     }
     next(err);
   }
