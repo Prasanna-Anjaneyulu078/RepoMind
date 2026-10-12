@@ -19,13 +19,15 @@ const Onboarding = ({ activeRepo }) => {
         if (!result.onboarding) {
           setStatus('NOT_AVAILABLE');
         } else {
-          const { status: currentStatus, data } = result.onboarding;
+          const { status: currentStatus, data, error: onboardingError } = result.onboarding;
           setStatus(currentStatus);
           
           if (currentStatus === 'READY' || currentStatus === 'STALE') {
             setOnboarding(data);
           } else if (currentStatus === 'GENERATING') {
              setTimeout(fetchOnboarding, 3000);
+          } else if (currentStatus === 'FAILED') {
+             setError(onboardingError || 'Failed to generate onboarding guide');
           }
         }
       }
@@ -90,7 +92,10 @@ const Onboarding = ({ activeRepo }) => {
     );
   }
 
-  if (['NOT_INGESTED', 'QUEUED', 'INGESTING', 'INDEXING_COMPLETED', 'EMBEDDING'].includes(activeRepo.ingestionStatus)) {
+  const isIndexed = activeRepo.fileIndexingStatus === 'COMPLETED' ||
+    (!['NOT_INGESTED', 'QUEUED', 'INGESTING'].includes(activeRepo.ingestionStatus) && activeRepo.fileCount > 0);
+
+  if (!isIndexed) {
     return (
       <div className="onboarding-page">
         <div className="empty-state-card center-card" style={{margin: 'auto', textAlign: 'center'}}>
@@ -138,6 +143,17 @@ const Onboarding = ({ activeRepo }) => {
           <p className="empty-state-subtitle">Generate a comprehensive onboarding guide from the indexed repository.</p>
           <button type="button" className="btn-action-primary mt-3" onClick={generateOnboarding}>
             Generate Onboarding
+          </button>
+        </div>
+      )}
+
+      {status === 'FAILED' && (
+        <div className="empty-state-card center-card" style={{margin: '48px auto', textAlign: 'center'}}>
+          <span className="material-symbols-outlined icon-large text-danger" style={{color: '#ef4444'}}>error</span>
+          <h3 className="empty-state-title">Failed to generate onboarding</h3>
+          <p className="empty-state-subtitle">{error || 'An error occurred while generating the onboarding guide.'}</p>
+          <button type="button" className="btn-action-primary mt-3" onClick={generateOnboarding}>
+            Try Again
           </button>
         </div>
       )}

@@ -29,18 +29,19 @@ const generateOnboarding = async (repositoryId) => {
 
     if (!repository) throw new Error('Repository not found');
     
-    // Check if not indexed
-    if (['NOT_INGESTED', 'QUEUED', 'INGESTING', 'EMBEDDING'].includes(repository.ingestionStatus)) {
-      throw new Error('Repository is not fully indexed yet');
+    // Check if files are indexed
+    if (['NOT_INGESTED', 'QUEUED', 'INGESTING'].includes(repository.ingestionStatus) && repository.fileIndexingStatus !== 'COMPLETED') {
+      throw new Error('Repository files are not indexed yet');
     }
 
     await prisma.repositoryOnboarding.upsert({
       where: { repositoryId },
-      update: { status: 'GENERATING' },
+      update: { status: 'GENERATING', error: null },
       create: {
         repositoryId,
         commitSha: repository.latestCommitSha || 'unknown',
-        status: 'GENERATING'
+        status: 'GENERATING',
+        error: null
       }
     });
 
@@ -161,6 +162,7 @@ const generateOnboarding = async (repositoryId) => {
       data: {
         status: 'READY',
         data: onboardingData,
+        error: null,
         commitSha: repository.latestCommitSha || 'unknown',
         generatedAt: new Date()
       }

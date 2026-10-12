@@ -38,8 +38,8 @@ const generateOnboarding = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Repository not found or unauthorized' });
     }
 
-    if (['NOT_INGESTED', 'QUEUED', 'INGESTING', 'EMBEDDING'].includes(repo.ingestionStatus)) {
-      return res.status(409).json({ success: false, message: 'Repository is not fully indexed yet' });
+    if (['NOT_INGESTED', 'QUEUED', 'INGESTING'].includes(repo.ingestionStatus) && repo.fileIndexingStatus !== 'COMPLETED') {
+      return res.status(409).json({ success: false, message: 'Repository files are not indexed yet' });
     }
 
     // Start background generation
