@@ -38,7 +38,9 @@ const Header = ({ activeRepo, onSync, onOpenAskModal, onToggleMobileNav }) => {
           type="button"
           className="btn-header-sync"
           onClick={handleSyncClick}
-          title="Trigger Semantic Sync"
+          title={activeRepo ? "Trigger Semantic Sync" : "Select a repository to sync"}
+          disabled={!activeRepo || isSyncing}
+          style={{ opacity: !activeRepo ? 0.6 : 1, cursor: !activeRepo ? 'not-allowed' : 'pointer' }}
         >
           <span
             className={`material-symbols-outlined sync-icon ${isSyncing ? 'spinning' : ''}`}

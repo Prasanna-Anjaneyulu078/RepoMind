@@ -133,6 +133,21 @@ const Repositories = ({ repositories, onSelectRepo, onOpenConnectModal, onRepoDe
               />
             </div>
           </div>
+          <div className="filter-right-group">
+            <button
+              type="button"
+              className="btn-action-secondary"
+              onClick={fetchPaginatedRepositories}
+              disabled={isLoading}
+              title="Refresh repositories"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+            >
+              <span className={`material-symbols-outlined ${isLoading ? 'spinning' : ''}`} style={{ fontSize: '18px' }}>
+                sync
+              </span>
+              <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
+          </div>
         </div>
       )}
 

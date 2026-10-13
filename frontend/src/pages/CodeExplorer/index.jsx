@@ -51,7 +51,7 @@ const TreeNode = ({ node, level, onSelect, selectedPath, expandedFolders, toggle
   );
 };
 
-const CodeExplorer = ({ activeRepo }) => {
+const CodeExplorer = ({ activeRepo, isLoading = false }) => {
   const navigate = useNavigate();
   const { showError } = useError();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -161,6 +161,18 @@ const CodeExplorer = ({ activeRepo }) => {
       setOpenFiles(prev => prev.map(f => 
         f.path === path ? { ...f, error: 'Unable to load file content.', loading: false } : f
       ));
+    }
+  };
+
+  const handleRefreshExplorer = async () => {
+    setLoadingTree(true);
+    try {
+      await loadTree();
+      if (activeFilePath) {
+        await loadFileContent(activeFilePath);
+      }
+    } finally {
+      setLoadingTree(false);
     }
   };
 
@@ -424,13 +436,34 @@ const CodeExplorer = ({ activeRepo }) => {
     );
   };
 
+  if (!activeRepo) {
+    if (isLoading) {
+      return (
+        <div className="code-explorer-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          <LoadingState />
+        </div>
+      );
+    }
+    return (
+      <div className="code-explorer-container empty-container">
+        <div className="empty-state-card" style={{ margin: 'auto', textAlign: 'center', padding: '40px' }}>
+          <h3 className="empty-state-title">No repository selected.</h3>
+          <p className="empty-state-subtitle">Select a repository to explore its codebase.</p>
+          <button type="button" className="btn-action-primary" onClick={() => navigate('/repositories')} style={{ marginTop: '16px' }}>
+            Go to Repositories
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="code-explorer-container">
       <div className="ide-command-bar">
         <div className="ide-bar-left">
           <div className="ide-path-breadcrumbs">
             <span className="path-crumb-clickable" onClick={() => navigate('/repositories')}>
-              {activeRepo.name}
+              {activeRepo?.name || 'Repositories'}
             </span>
             {activeFilePath && (
               <>
@@ -441,9 +474,14 @@ const CodeExplorer = ({ activeRepo }) => {
           </div>
         </div>
         <div className="ide-bar-actions">
-          <button className="btn-ide-secondary" onClick={loadTree}>
-            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>sync</span>
-            Refresh
+          <button 
+            className="btn-ide-secondary" 
+            onClick={handleRefreshExplorer}
+            disabled={loadingTree}
+            title="Refresh repository files"
+          >
+            <span className={`material-symbols-outlined ${loadingTree ? 'spinning' : ''}`} style={{ fontSize: '14px' }}>sync</span>
+            {loadingTree ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>

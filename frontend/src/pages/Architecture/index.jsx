@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchApi } from '../../utils/apiClient';
 import './index.css';
 
-const Architecture = ({ activeRepo }) => {
+const Architecture = ({ activeRepo, isLoading = false }) => {
   const navigate = useNavigate();
   const [architecture, setArchitecture] = useState(null);
   const [status, setStatus] = useState('LOADING'); // LOADING, NOT_AVAILABLE, ANALYZING, COMPLETED, FAILED, STALE
@@ -79,6 +79,16 @@ const Architecture = ({ activeRepo }) => {
   };
 
   if (!activeRepo) {
+    if (isLoading) {
+      return (
+        <div className="architecture-page">
+          <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
+            <span className="material-symbols-outlined spinning" style={{ fontSize: '32px', color: 'var(--primary)' }}>progress_activity</span>
+            <p style={{ marginTop: '12px', fontSize: '14px' }}>Loading repository architecture...</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="architecture-page empty-container">
         <div className="empty-state-card center-card" style={{margin: 'auto', textAlign: 'center'}}>

@@ -29,36 +29,56 @@ const Dashboard = ({ onSelectRepo, onOpenConnectModal }) => {
   const navigate = useNavigate();
   const [recentQuestions, setRecentQuestions] = useState([]);
   const [recentRepositories, setRecentRepositories] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleOpenRepo = (repo) => {
     onSelectRepo(repo);
     navigate('/code-explorer');
   };
 
+  const fetchDashboard = async (isMounted = true) => {
+    setIsLoading(true);
+    try {
+      const data = await fetchApi(`/api/dashboard`, {
+        credentials: 'include'
+      });
+      if (data.success && isMounted) {
+        setRecentQuestions(data.data.recentQuestions || []);
+        setRecentRepositories(data.data.recentRepositories || []);
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard data', err);
+    } finally {
+      if (isMounted) setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
-    const fetchDashboard = async () => {
-      try {
-        const data = await fetchApi(`/api/dashboard`, {
-          credentials: 'include'
-        });
-        if (data.success && isMounted) {
-          setRecentQuestions(data.data.recentQuestions || []);
-          setRecentRepositories(data.data.recentRepositories || []);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard data', err);
-      }
-    };
-    fetchDashboard();
+    fetchDashboard(isMounted);
     return () => { isMounted = false; };
   }, []);
 
   return (
     <div className="dashboard-page">
-      <header className="dashboard-header">
-        <h1 className="dashboard-title">Dashboard</h1>
-        <p className="dashboard-subtitle">Workspace overview and recent activity across your repositories.</p>
+      <header className="dashboard-header" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+        <div>
+          <h1 className="dashboard-title">Dashboard</h1>
+          <p className="dashboard-subtitle">Workspace overview and recent activity across your repositories.</p>
+        </div>
+        <button
+          type="button"
+          className="btn-action-secondary"
+          onClick={() => fetchDashboard(true)}
+          disabled={isLoading}
+          title="Refresh dashboard"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+        >
+          <span className={`material-symbols-outlined ${isLoading ? 'spinning' : ''}`} style={{ fontSize: '18px' }}>
+            sync
+          </span>
+          <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
       </header>
 
       <section className="dashboard-section">

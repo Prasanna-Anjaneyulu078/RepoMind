@@ -7,7 +7,11 @@ const ProtectedRoute = ({ children }) => {
   const location = useLocation();
 
   if (isLoading) {
-    return null;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: 'var(--surface)' }}>
+        <span className="material-symbols-outlined spinning" style={{ fontSize: '32px', color: 'var(--primary)' }}>progress_activity</span>
+      </div>
+    );
   }
 
   if (!user) {

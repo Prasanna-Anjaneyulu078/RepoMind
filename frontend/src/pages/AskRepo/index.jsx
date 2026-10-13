@@ -9,7 +9,7 @@ import remarkGfm from 'remark-gfm';
 import '../CodeExplorer/MarkdownViewer/index.css';
 import './index.css';
 
-const AskRepo = ({ activeRepo }) => {
+const AskRepo = ({ activeRepo, isRepoLoading = false }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const navComponentContext = location.state?.componentContext || null;
@@ -174,6 +174,16 @@ const AskRepo = ({ activeRepo }) => {
   };
 
   if (!activeRepo) {
+    if (isRepoLoading) {
+      return (
+        <div className="ask-repo-page">
+          <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
+            <span className="material-symbols-outlined spinning" style={{ fontSize: '32px', color: 'var(--primary)' }}>progress_activity</span>
+            <p style={{ marginTop: '12px', fontSize: '14px' }}>Loading repository assistant...</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="ask-repo-page empty-page-state">
         <div className="empty-state-card">
@@ -198,7 +208,7 @@ const AskRepo = ({ activeRepo }) => {
           </button>
           <div>
             <h1 className="ask-repo-title">Ask Repo</h1>
-            <p className="ask-repo-subtitle">Ask questions about {activeRepo.name}</p>
+            <p className="ask-repo-subtitle">Ask questions about {activeRepo?.name || ''}</p>
           </div>
         </div>
         <button className="btn-action-light new-conversation-btn" onClick={handleNewConversation}>
@@ -264,7 +274,7 @@ const AskRepo = ({ activeRepo }) => {
                     <img src={RepoMindLogo} alt="RepoMind Logo" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
                   </div>
                   <h2>RepoMind</h2>
-                  <h3>Understand {activeRepo.name} with AI</h3>
+                  <h3>Understand {activeRepo?.name || 'Repository'} with AI</h3>
                   <p>Ask anything about this repository.</p>
                 </div>
                 
@@ -348,7 +358,7 @@ const AskRepo = ({ activeRepo }) => {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Ask anything about ${activeRepo.name}...`}
+                placeholder={`Ask anything about ${activeRepo?.name || 'this repository'}...`}
                 disabled={isLoading}
                 rows={1}
               />

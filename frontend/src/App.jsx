@@ -17,7 +17,14 @@ import { fetchApi } from './utils/apiClient.js';
 const App = () => {
   const { user } = useAuth();
   const [repositories, setRepositories] = useState([]);
-  const [activeRepo, setActiveRepo] = useState(null);
+  const [activeRepo, setActiveRepo] = useState(() => {
+    try {
+      const cached = localStorage.getItem('repomind_active_repo_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [isRepositoriesLoading, setIsRepositoriesLoading] = useState(true);
@@ -54,8 +61,14 @@ const App = () => {
         setActiveRepo(nextActiveRepo);
         if (nextActiveRepo) {
           localStorage.setItem('repomind_active_repo_id', nextActiveRepo.id);
+          try {
+            localStorage.setItem('repomind_active_repo_cache', JSON.stringify(nextActiveRepo));
+          } catch (e) {
+            console.error('Failed to cache repo:', e);
+          }
         } else {
           localStorage.removeItem('repomind_active_repo_id');
+          localStorage.removeItem('repomind_active_repo_cache');
         }
       }
     } catch (err) {
@@ -85,24 +98,44 @@ const App = () => {
 
   const handleSelectRepo = (repo) => {
     setActiveRepo(repo);
-    localStorage.setItem('repomind_active_repo_id', repo.id);
+    if (repo) {
+      localStorage.setItem('repomind_active_repo_id', repo.id);
+      try {
+        localStorage.setItem('repomind_active_repo_cache', JSON.stringify(repo));
+      } catch (e) {
+        console.error('Failed to cache repo:', e);
+      }
+    } else {
+      localStorage.removeItem('repomind_active_repo_id');
+      localStorage.removeItem('repomind_active_repo_cache');
+    }
     setRepositories((prev) =>
       prev.map((r) => ({
         ...r,
-        isActive: r.id === repo.id
+        isActive: repo ? r.id === repo.id : false
       }))
     );
-    addToast(`Switched active repository to ${repo.name}`, 'swap_horiz');
+    if (repo) {
+      addToast(`Switched active repository to ${repo.name}`, 'swap_horiz');
+    }
   };
 
   const handleDeleteRepoAppLevel = (repo) => {
     setRepositories(prev => {
       const next = prev.filter(r => r.id !== repo.id);
       if (activeRepo && activeRepo.id === repo.id) {
-        if (next.length > 0) {
-          setActiveRepo(next[0]);
+        const nextActive = next.length > 0 ? next[0] : null;
+        setActiveRepo(nextActive);
+        if (nextActive) {
+          localStorage.setItem('repomind_active_repo_id', nextActive.id);
+          try {
+            localStorage.setItem('repomind_active_repo_cache', JSON.stringify(nextActive));
+          } catch (e) {
+            console.error('Failed to cache repo:', e);
+          }
         } else {
-          setActiveRepo(null);
+          localStorage.removeItem('repomind_active_repo_id');
+          localStorage.removeItem('repomind_active_repo_cache');
         }
       }
       return next;
@@ -164,19 +197,19 @@ const App = () => {
           />
           <Route
             path="code-explorer"
-            element={<CodeExplorer activeRepo={activeRepo} />}
+            element={<CodeExplorer activeRepo={activeRepo} isLoading={isRepositoriesLoading} />}
           />
           <Route
             path="onboarding"
-            element={<Onboarding activeRepo={activeRepo} />}
+            element={<Onboarding activeRepo={activeRepo} isLoading={isRepositoriesLoading} />}
           />
           <Route
             path="ask-repo"
-            element={<AskRepo activeRepo={activeRepo} />}
+            element={<AskRepo activeRepo={activeRepo} isRepoLoading={isRepositoriesLoading} />}
           />
           <Route
             path="architecture"
-            element={<Architecture activeRepo={activeRepo} />}
+            element={<Architecture activeRepo={activeRepo} isLoading={isRepositoriesLoading} />}
           />
           <Route
             path="profile"
