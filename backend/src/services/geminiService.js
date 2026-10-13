@@ -1,17 +1,53 @@
 const { GoogleGenAI } = require('@google/genai');
 
+const KNOWN_MODEL_ALIASES = {
+  'gemini-1.5-flash': 'gemini-2.5-flash',
+  'gemini-1.5-pro': 'gemini-2.5-pro',
+  'gemini-1.5-flash-8b': 'gemini-2.5-flash',
+  'gemini-2.0-flash': 'gemini-2.5-flash',
+  'gemini-2.0-flash-exp': 'gemini-2.5-flash',
+  'gemini-2.5-flash-lite': 'gemini-flash-latest',
+  'gemini-1.0-pro': 'gemini-2.5-flash'
+};
+
+const CANONICAL_GENERATION_FALLBACKS = [
+  'gemini-2.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.5-pro'
+];
+
+function resolveModelList(envValue, defaultPrimary = 'gemini-2.5-flash') {
+  const rawList = (envValue || defaultPrimary)
+    .split(',')
+    .map(m => m.trim().replace(/^models\//, ''))
+    .filter(Boolean);
+
+  const resolved = [];
+  for (const m of rawList) {
+    const target = KNOWN_MODEL_ALIASES[m] || m;
+    if (!resolved.includes(target)) {
+      resolved.push(target);
+    }
+  }
+
+  for (const fallback of CANONICAL_GENERATION_FALLBACKS) {
+    if (!resolved.includes(fallback)) {
+      resolved.push(fallback);
+    }
+  }
+
+  return resolved;
+}
+
 class GeminiService {
   constructor() {
-    this.primaryEmbeddingModel = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
+    this.primaryEmbeddingModel = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-2';
     
     const fallbackEnv = process.env.GEMINI_EMBEDDING_FALLBACK_MODELS || '';
     this.fallbackEmbeddingModels = fallbackEnv.split(',').map(m => m.trim()).filter(m => m);
     
-    const analysisEnv = process.env.GEMINI_ANALYSIS_MODELS || 'gemini-2.5-flash';
-    this.analysisModels = analysisEnv.split(',').map(m => m.trim()).filter(m => m);
-    
-    const chatEnv = process.env.GEMINI_CHAT_MODELS || 'gemini-2.5-flash';
-    this.chatModels = chatEnv.split(',').map(m => m.trim()).filter(m => m);
+    this.analysisModels = resolveModelList(process.env.GEMINI_ANALYSIS_MODELS, 'gemini-2.5-flash');
+    this.chatModels = resolveModelList(process.env.GEMINI_CHAT_MODELS, 'gemini-2.5-flash');
     
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     

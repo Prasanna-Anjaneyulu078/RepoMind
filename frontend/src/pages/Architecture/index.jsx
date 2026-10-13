@@ -189,6 +189,21 @@ const Architecture = ({ activeRepo }) => {
                 <strong>Architecture may be outdated.</strong> Repository changed since the last analysis.
               </div>
             )}
+
+            {architecture.summary && (
+              <div className="arch-overview-banner">
+                <div className="arch-overview-header">
+                  <span className="arch-type-pill">
+                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>hub</span>
+                    {architecture.architectureType || 'System Architecture'}
+                  </span>
+                  <span className="arch-tiers-count">
+                    {architecture.analysisData?.layers?.length || 0} Architectural Tiers
+                  </span>
+                </div>
+                <p className="arch-overview-desc">{architecture.summary}</p>
+              </div>
+            )}
             
             <div className="arch-topology-layout">
               {/* Left: Architecture Layers */}
@@ -200,6 +215,9 @@ const Architecture = ({ activeRepo }) => {
                   <span className="layer-badge">{layer.badge}</span>
                   <h2 className="layer-title">{layer.layerName}</h2>
                 </div>
+                <span className="layer-count-badge">
+                  {layer.nodes?.length || 0} components
+                </span>
               </div>
               <p style={{ fontSize: '12px', color: 'var(--on-surface-variant)' }}>
                 {layer.description}
