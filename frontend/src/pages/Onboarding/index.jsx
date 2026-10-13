@@ -79,16 +79,6 @@ const Onboarding = ({ activeRepo, isLoading = false }) => {
   };
 
   if (!activeRepo) {
-    if (isLoading) {
-      return (
-        <div className="onboarding-page">
-          <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined spinning" style={{ fontSize: '32px', color: 'var(--primary)' }}>progress_activity</span>
-            <p style={{ marginTop: '12px', fontSize: '14px' }}>Loading developer onboarding guide...</p>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="onboarding-page empty-container">
         <div className="empty-state-card center-card" style={{margin: 'auto', textAlign: 'center'}}>

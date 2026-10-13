@@ -174,16 +174,6 @@ const AskRepo = ({ activeRepo, isRepoLoading = false }) => {
   };
 
   if (!activeRepo) {
-    if (isRepoLoading) {
-      return (
-        <div className="ask-repo-page">
-          <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
-            <span className="material-symbols-outlined spinning" style={{ fontSize: '32px', color: 'var(--primary)' }}>progress_activity</span>
-            <p style={{ marginTop: '12px', fontSize: '14px' }}>Loading repository assistant...</p>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="ask-repo-page empty-page-state">
         <div className="empty-state-card">
